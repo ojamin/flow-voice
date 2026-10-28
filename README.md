@@ -36,13 +36,42 @@ models may emit deltas only after stop. The HTTP speech models are currently
 marked deprecated by OpenAI, with shutdown January 6, 2027; migrate explicitly
 before then. Provider/model availability can change independently of this library.
 
+### OpenAI-compatible REST dictation
+
+Set `options: { sttTransport: 'rest' }` for services offering
+`POST /audio/transcriptions` but not realtime WebSockets. Both transports accept
+raw PCM16 mono at 24 kHz. REST sends a WAV multipart `file`, configured `model`,
+optional session `language`, and `response_format=json`, preserving the `baseUrl`
+path prefix (for example `https://speech.example/api/v1`). Select a transcription
+model supported by your service; REST defaults to `whisper-1` if model is empty.
+
+The default remains `sttTransport: 'realtime'` for compatibility. A realtime
+handshake rejected with HTTP 404, 405 or 426 automatically switches to REST,
+but only before protocol readiness and before any audio is sent upstream. Other
+failures do not retry or switch transports. Specify REST explicitly for known
+REST-only endpoints to avoid the failed handshake. REST capabilities report
+`interim: false` (also after a fallback); it does not generate tentative words.
+
+REST splits at 600 ms of quiet after speech (20 ms RMS windows, threshold 500
+in PCM16 amplitude units), or at 12 seconds, and flushes on `end()`. Results
+commit in order, with one space between chunks unless the next text starts with
+punctuation. Each completed chunk updates the full committed/empty-tentative
+partial through the server runner. One request runs at a time, with at most
+36 seconds of accepted PCM buffered including the active request. Overflow fails
+closed rather than dropping speech. Responses are limited to 64 KiB and total
+transcript length to 32000 UTF-16 units. `options.sttRequestTimeoutMs` defaults
+to 10000 (integer range 1–120000); cancellation aborts the request. The server
+runner additionally caps total stop finalization at ten seconds, including any
+queued chunks. Longer request timeouts are useful only with a direct adapter host
+that supplies its own bounded finalization lifecycle.
+
 MOSS-compat speaks the author's speech gateway protocol: WebSocket
 `/v1/realtime/transcriptions`, voice discovery at `/health`, and streaming TTS at
 `/v1/audio/speech/stream`. Its default model is `moss-tts-local-v1.5-q8_0-vulkan`;
 TTS supports speed 1 and at most 2000 UTF-16 code units per request. Split longer
 prose at section boundaries. See NOTICE for provenance.
 
-## Install prebuilt v0.1.0
+## Install prebuilt v0.2.0
 
 Use Node >=22 and pnpm 12.3.4. Tagged releases contain committed ESM, declarations
 and the worklet: no registry publication or install-time build is required.
@@ -50,10 +79,10 @@ and the worklet: no registry publication or install-time build is required.
 ```json
 {
   "dependencies": {
-    "@flow-voice/core": "github:ojamin/flow-voice#v0.1.0&path:/packages/core",
-    "@flow-voice/browser": "github:ojamin/flow-voice#v0.1.0&path:/packages/browser",
-    "@flow-voice/server": "github:ojamin/flow-voice#v0.1.0&path:/packages/server",
-    "@flow-voice/react": "github:ojamin/flow-voice#v0.1.0&path:/packages/react",
+    "@flow-voice/core": "github:ojamin/flow-voice#v0.2.0&path:/packages/core",
+    "@flow-voice/browser": "github:ojamin/flow-voice#v0.2.0&path:/packages/browser",
+    "@flow-voice/server": "github:ojamin/flow-voice#v0.2.0&path:/packages/server",
+    "@flow-voice/react": "github:ojamin/flow-voice#v0.2.0&path:/packages/react",
     "react": "^19.0.0"
   }
 }
@@ -166,7 +195,8 @@ redirects. **Hosts own URL policy**, including allowed destinations, schemes,
 metadata addresses and network egress restrictions. These adapters do **not** pin
 DNS resolution or prevent DNS rebinding. Apply policy at the host/network boundary.
 Catalog responses are bounded (1 MiB, 1000 voices, ten Cartesia pages; gateway
-discovery 64 KiB). There are no automatic retries or batch fallbacks. Avoid logging
+discovery 64 KiB). There are no automatic retries; only the pre-audio OpenAI
+handshake fallback described above. Avoid logging
 credentials, transcripts, audio or sensitive endpoint URLs.
 
 ## Development
@@ -197,7 +227,7 @@ Optional settings are `FLOW_VOICE_SMOKE_BASE_URL`, `FLOW_VOICE_SMOKE_TTS_MODEL`,
 From a clean, verified source commit:
 
 ```sh
-node scripts/release.mjs ../flow-voice-v0.1.0-tree
+node scripts/release.mjs ../flow-voice-v0.2.0-tree
 ```
 
 The script cleans/builds all packages and writes a new external directory, refusing
@@ -207,8 +237,8 @@ devDependencies and source exports are omitted. Repeated builds using the same
 source/toolchain produce identical trees with no generated timestamps.
 
 Create a release commit whose parent is the source commit and whose tree is exactly
-that output, with subject `Release v0.1.0`. Tag it with annotated tag `v0.1.0` and
-message `flow-voice v0.1.0`. Keep main on the source commit and the release branch
+that output, with subject `Release v0.2.0`. Tag it with annotated tag `v0.2.0` and
+message `flow-voice v0.2.0`. Keep main on the source commit and the release branch
 on the prebuilt commit. Before publishing, install all four packages into a fresh
 consumer with default pnpm supply-chain policy, check dist imports and load the
 worklet in an AudioWorklet context. Never move a published tag; use a new version.

@@ -12,6 +12,8 @@ export function websocketStt(options: {
   audio(pcm: Uint8Array): string | Uint8Array;
   stop: unknown;
   emptyEnd?: boolean;
+  /** Only before protocol readiness, so no audio has reached the rejected endpoint. */
+  fallback?: () => SttSession;
   parse(event: Record<string, unknown>): { ready?: boolean; events?: SttEvent[]; done?: boolean };
 }): SttSession {
   const socket = openSpeechSocket(options);
@@ -21,6 +23,7 @@ export function websocketStt(options: {
     buffered = 0;
   let hasAudio = false;
   const pending: Uint8Array[] = [];
+  let fallback: SttSession | undefined;
   let resolveDone!: () => void;
   const done = new Promise<void>((resolve) => {
     resolveDone = resolve;
@@ -50,6 +53,7 @@ export function websocketStt(options: {
   if (!closed) socket.send(JSON.stringify(options.start));
   return {
     write(pcm) {
+      if (fallback) return fallback.write(pcm);
       if (closed || stopping) throw speechError('invalid_message');
       if (!pcm.length || pcm.length % 2 || pcm.length > DEFAULT_LIMITS.maxFrameBytes)
         throw speechError('invalid_message');
@@ -63,6 +67,7 @@ export function websocketStt(options: {
       }
     },
     end() {
+      if (fallback) return fallback.end();
       if (!stopping && !closed) {
         stopping = true;
         if (ready) stop();
@@ -104,6 +109,19 @@ export function websocketStt(options: {
               yield { type: 'ended', reason: 'stopped' };
             else throw speechError('transport_error');
           } catch (error) {
+            if (!ready && !options.signal.aborted && options.fallback &&
+                error instanceof Error && 'status' in error &&
+                [404, 405, 426].includes(Number(error.status))) {
+              clearTimeout(timer);
+              socket.close();
+              fallback = options.fallback();
+              for (const pcm of pending) fallback.write(pcm);
+              pending.length = 0;
+              buffered = 0;
+              if (stopping) void fallback.end();
+              yield* fallback.events;
+              return;
+            }
             if (options.signal.aborted) yield { type: 'ended', reason: 'cancelled' };
             else {
               yield { type: 'error', ...normalizeSpeechError(timeoutError ?? error) };

@@ -3,6 +3,7 @@ import type { SttAdapter, TtsAdapter } from '../index.js';
 import { speechError } from '../errors.js';
 import { authHeaders, checkedFetch, endpoint, responseAudio } from '../transport.js';
 import { websocketStt } from './session.js';
+import { restTranscription } from './openai-rest.js';
 
 const pcm: AudioFormat = { kind: 'pcm', encoding: 'pcm_s16le', sampleRate: 24000, channels: 1 };
 const formats: AudioFormat[] = [
@@ -32,13 +33,29 @@ export function createOpenAIAdapters(config: ProviderEndpointConfig): {
 } {
   const base = config.baseUrl ?? 'https://api.openai.com/v1';
   const headers = authHeaders(config.apiKey);
+  const transport = config.options?.sttTransport ?? 'realtime';
+  const timeoutMs = config.options?.sttRequestTimeoutMs ?? 10_000;
+  if (
+    (transport !== 'rest' && transport !== 'realtime') ||
+    typeof timeoutMs !== 'number' || !Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 120_000
+  )
+    throw speechError('invalid_message');
+  const capabilities = { live: true as const, interim: transport !== 'rest', sampleRates: [24000] };
   return {
     stt: {
       id: 'openai',
-      capabilities: { live: true, interim: true, sampleRates: [24000] },
+      capabilities,
       open({ format, language, signal }) {
         if (format.encoding !== 'pcm_s16le' || format.sampleRate !== 24000 || format.channels !== 1)
           throw speechError('unsupported');
+        const rest = () => {
+          capabilities.interim = false;
+          return restTranscription({
+            url: endpoint(base, 'audio/transcriptions'), headers,
+            model: config.model || 'whisper-1', language, rate: format.sampleRate, signal, timeoutMs,
+          });
+        };
+        if (transport === 'rest') return rest();
         const url = endpoint(base, 'realtime');
         url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
         url.searchParams.set('intent', 'transcription');
@@ -76,6 +93,7 @@ export function createOpenAIAdapters(config: ProviderEndpointConfig): {
             }),
           stop: { type: 'input_audio_buffer.commit' },
           emptyEnd: true,
+          fallback: rest,
           parse(event) {
             if (
               event.type === 'error' ||
