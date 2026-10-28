@@ -1,0 +1,1 @@
+{"version":3,"file":"dictation.js","sourceRoot":"","sources":["../src/dictation.tsx"],"names":[],"mappings":"AAAA,OAAO,EAAE,oBAAoB,EAAE,MAAM,OAAO,CAAC;AAG7C,8EAA8E;AAC9E,MAAM,UAAU,YAAY,CAAC,UAA+B;IAC1D,OAAO,oBAAoB,CAAC,UAAU,CAAC,SAAS,EAAE,UAAU,CAAC,WAAW,EAAE,UAAU,CAAC,WAAW,CAAC,CAAC;AACpG,CAAC"}

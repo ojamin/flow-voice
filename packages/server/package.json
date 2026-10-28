@@ -4,38 +4,26 @@
   "license": "MIT",
   "type": "module",
   "files": [
-    "dist"
+    "dist",
+    "LICENSE",
+    "NOTICE"
   ],
   "exports": {
     ".": {
-      "flow-voice:source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./testing": {
-      "flow-voice:source": "./src/testing.ts",
       "types": "./dist/testing.d.ts",
       "import": "./dist/testing.js",
       "default": "./dist/testing.js"
     }
   },
-  "scripts": {
-    "build": "tsc-rs -p tsconfig.build.json",
-    "typecheck": "tsc-rs --noEmit -p tsconfig.json",
-    "lint": "oxlint src",
-    "test": "vitest run --passWithNoTests",
-    "test:unit": "vitest run --passWithNoTests"
-  },
   "dependencies": {
-    "@flow-voice/core": "workspace:*",
     "ws": "^8.18.3"
   },
-  "devDependencies": {
-    "tsc-rs": "0.2.0",
-    "oxlint": "^1.76.0",
-    "vitest": "^4.1.10",
-    "@types/node": "^22.20.1",
-    "@types/ws": "^8.18.1"
+  "peerDependencies": {
+    "@flow-voice/core": "github:ojamin/flow-voice#v0.1.0&path:/packages/core"
   }
 }
