@@ -1,0 +1,12 @@
+packages:
+  - 'packages/*'
+
+# Match the verified linter and keep React aligned with the pinned react-dom.
+overrides:
+  oxlint: 1.76.0
+  react: 19.2.8
+
+# Only the bundler requires a dependency build. Compiler bindings ship prebuilt.
+allowBuilds:
+  esbuild: true
+  tsc-rs: false
