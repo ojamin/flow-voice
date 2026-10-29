@@ -38,7 +38,7 @@ export function validateSpeechEndpointDraft(value: unknown,
     draft.baseUrl = normalizeUrl(draft.baseUrl);
     if (previous && !draft.apiKey && (previous.provider !== draft.provider ||
       normalizeUrl(previous.baseUrl) !== draft.baseUrl)) return { ok: false, issues: [
-        { path: ['apiKey'], message: 'A new API key is required when changing provider or base URL.' },
+        { path: ['apiKey'], message: 'Enter a new API key when changing the provider or base URL.' },
       ] };
   } catch {
     return { ok: false, issues: [{ path: ['baseUrl'], message: 'Use an HTTP(S) URL without credentials, query or fragment.' }] };

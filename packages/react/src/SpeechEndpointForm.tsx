@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { InputHTMLAttributes } from 'react';
+import { validateSpeechEndpointDraft } from '@flow-voice/core';
 import type {
   SpeechEndpointDraft,
   SpeechEndpointView,
@@ -135,17 +136,7 @@ export function SpeechEndpointForm({
           Number(draft.speed) > 2)
       )
         issues.speed = 'Speed must be between 0.5 and 2.';
-      if (
-        baseline &&
-        (draft.provider.trim() !== baseline.provider ||
-          (draft.baseUrl.trim() || null) !== (baseline.baseUrl?.trim() || null)) &&
-        (!draft.replacing || !draft.apiKey.trim())
-      )
-        issues.apiKey = 'Enter a new API key when changing the provider or base URL.';
     }
-    setErrors(issues);
-    setStatus('');
-    if (Object.keys(issues).length) return;
     const options = { ...baseline?.options };
     if (kind === 'stt') {
       delete options.language;
@@ -161,13 +152,22 @@ export function SpeechEndpointForm({
       if (draft.voice) options.voice = draft.voice;
       options.speed = Number(draft.speed);
     }
-    const value: SpeechEndpointDraft = {
+    let value: SpeechEndpointDraft = {
       provider: draft.provider.trim(),
       model: draft.model.trim(),
       baseUrl: draft.baseUrl.trim() || null,
       options,
       ...(draft.replacing && draft.apiKey.trim() ? { apiKey: draft.apiKey.trim() } : {}),
     };
+    if (action !== 'clear' && !Object.keys(issues).length) {
+      // The same normalization and key-rebinding rule the host applies on test and save.
+      const checked = validateSpeechEndpointDraft(value, baseline);
+      if (checked.ok) value = checked.value;
+      else for (const issue of checked.issues) issues[issue.path[0] ?? 'form'] ??= issue.message;
+    }
+    setErrors(issues);
+    setStatus('');
+    if (Object.keys(issues).length) return;
     const attempt = revision.current;
     busy.current = true;
     setPending(action === 'test' ? 'test' : 'save');
