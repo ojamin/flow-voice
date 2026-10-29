@@ -4,15 +4,12 @@ import {
   normalizeDictationPreference, speechPlaybackInstruction,
 } from './index.js';
 
-it('exports the short lowercase per-message Voice instruction', () => {
-  expect(TTS_REPLY_INSTRUCTION).toBe('Voice is on: wrap the parts of your reply meant to be spoken in <tts>…</tts> tags.');
-});
-
-it('gives a full enabled/disabled playback notice, each replacing the last', () => {
-  const on = speechPlaybackInstruction(true);
-  expect(on).toContain(TTS_REPLY_INSTRUCTION);
-  expect(on).toMatch(/^<speech_playback>.*supersedes this one\.<\/speech_playback>$/s);
-  expect(speechPlaybackInstruction(false)).toContain('speech playback is disabled. Do not add <tts>…</tts> tags');
+it('asks for <tts> tags only while Voice is on, in one short line', () => {
+  expect(TTS_REPLY_INSTRUCTION).toBe(
+    'The user has turned on read-aloud: put anything you want read aloud in <tts>…</tts> tags.',
+  );
+  expect(speechPlaybackInstruction(true)).toBe(TTS_REPLY_INSTRUCTION);
+  expect(speechPlaybackInstruction(false)).toBe('');
 });
 
 it('normalizes stored dictation choices, migrating the old single switch', () => {
