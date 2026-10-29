@@ -57,7 +57,7 @@ export function createCartesiaAdapters(config: ProviderEndpointConfig): { tts: T
               },
               signal: request.signal,
               body: JSON.stringify({
-                model_id: config.model,
+                model_id: config.model || 'sonic-3',
                 transcript: request.text,
                 voice: { mode: 'id', id: voice },
                 output_format: {

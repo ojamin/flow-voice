@@ -248,7 +248,8 @@ describe('ElevenLabs native adapters', () => {
     });
     const { tts } = createElevenLabsAdapters({
       provider: 'elevenlabs',
-      model: 'eleven_flash_v2_5',
+      // An empty model uses the provider default.
+      model: '',
       baseUrl,
       apiKey: 'test-key',
     });

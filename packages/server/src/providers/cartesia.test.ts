@@ -43,7 +43,8 @@ describe('Cartesia native SSE', () => {
     });
     const tts = createCartesiaAdapters({
       provider: 'cartesia',
-      model: 'sonic-3',
+      // An empty model uses the provider default.
+      model: '',
       apiKey: 'test-key',
       baseUrl,
     }).tts;

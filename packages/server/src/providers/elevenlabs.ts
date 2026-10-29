@@ -287,7 +287,7 @@ export function createElevenLabsAdapters(config: ProviderEndpointConfig): {
           signal: request.signal,
           body: JSON.stringify({
             text: request.text,
-            model_id: config.model,
+            model_id: config.model || 'eleven_flash_v2_5',
             ...(request.language ? { language_code: request.language } : {}),
             ...(request.speed !== undefined ? { voice_settings: { speed: request.speed } } : {}),
           }),

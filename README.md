@@ -31,7 +31,8 @@ for supported formats/options. Unknown provider ids fail closed; unsupported kin
 are absent, never silently substituted. Custom HTTP(S) base URLs preserve their
 path prefix. `@flow-voice/server/testing` provides in-memory fixtures only.
 
-OpenAI defaults to `gpt-live-transcribe` and `gpt-4o-mini-tts`. Committed-turn STT
+OpenAI defaults to `gpt-live-transcribe` and `gpt-4o-mini-tts`. Cartesia defaults to `sonic-3` and ElevenLabs
+synthesis to `eleven_flash_v2_5` when no model is given. Committed-turn STT
 models may emit deltas only after stop. The HTTP speech models are currently
 marked deprecated by OpenAI, with shutdown January 6, 2027; migrate explicitly
 before then. Provider/model availability can change independently of this library.
