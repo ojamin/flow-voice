@@ -52,6 +52,8 @@ export interface AudioOutput {
   resume(): Promise<void>;
   play(audio: SynthesisAudio, signal: AbortSignal): Promise<void>;
   reset(): void;
+  /** See SpeechPlayer.setBackgroundAudio. */
+  setBackground(enabled: boolean): Promise<void>;
   dispose(): void;
 }
 /** PCM buffers are scheduled at their native rate; AudioContext performs output-rate conversion.
@@ -62,7 +64,29 @@ export function createAudioOutput(): AudioOutput {
   let element: HTMLAudioElement | undefined;
   let paused = false;
   const ctx = () => (context ??= new AudioContext());
+  // Background mode: PCM goes to a stream that one media element plays without pause, silence
+  // included, so the browser treats the page as playing media rather than an idle tab.
+  let background: { node: MediaStreamAudioDestinationNode; media: HTMLAudioElement } | undefined;
+  const destination = (ac: AudioContext): AudioNode => background?.node ?? ac.destination;
   return {
+    async setBackground(enabled) {
+      if (!enabled) {
+        background?.media.pause();
+        if (background) background.media.srcObject = null;
+        background = undefined;
+        return;
+      }
+      if (background) return;
+      const ac = ctx();
+      const node = ac.createMediaStreamDestination();
+      const media = new Audio();
+      media.srcObject = node.stream;
+      background = { node, media };
+      // Both calls start synchronously inside the host's gesture, before the first await.
+      const playing = media.play();
+      const resumed = ac.resume();
+      await Promise.all([playing, resumed]);
+    },
     async unlock() {
       // Invoke resume/play synchronously inside the host's gesture, before the first await.
       const resumed = ctx().resume();
@@ -151,7 +175,7 @@ export function createAudioOutput(): AudioOutput {
             }
             const source = ac.createBufferSource();
             source.buffer = buffer;
-            source.connect(ac.destination);
+            source.connect(destination(ac));
             sources.add(source);
             const abort = () => {
               source.disconnect();
@@ -209,6 +233,7 @@ export function createAudioOutput(): AudioOutput {
       element?.pause();
     },
     dispose() {
+      background?.media.pause();
       element?.pause();
       element?.removeAttribute('src');
       if (context) void context.close();

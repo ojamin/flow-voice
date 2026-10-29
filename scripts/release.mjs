@@ -4,7 +4,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const packages = ['core', 'browser', 'server', 'react'];
-export const version = '0.2.0';
+export const version = '0.3.0';
 export const specifier = (name) => `github:ojamin/flow-voice#v${version}&path:/packages/${name}`;
 
 export function releaseManifest(source) {

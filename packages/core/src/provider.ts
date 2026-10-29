@@ -66,10 +66,15 @@ export interface SynthesisAudio {
   mimeType: string;
 }
 export const DEFAULT_LIMITS = {
-  maxSessionMs: 300_000,
+  /** No session cap: dictation lasts until it is stopped. Hosts may still set one. */
+  maxSessionMs: Number.POSITIVE_INFINITY,
+  /** Per synthesis request. Speech sections stay far below it; messages are not capped. */
   maxTextChars: 4_000,
   maxFrameBytes: 32_000,
   maxBufferedAudioBytes: 320_000,
   finalizationMs: 10_000,
-  maxQueuedSections: 32,
+  /** The player queues a whole reply, however long. */
+  maxQueuedSections: Number.POSITIVE_INFINITY,
 } as const;
+/** Browser timers fire at once past this delay, so longer limits mean "no limit". */
+export const MAX_TIMER_MS = 2_147_483_647;

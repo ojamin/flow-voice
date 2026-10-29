@@ -8,7 +8,12 @@ import {
 } from '@flow-voice/core';
 import type { SttServerMessage } from '@flow-voice/core';
 import { createDictationController, createTextareaComposerAdapter } from '../index.js';
-import type { AudioCaptureOptions, DictationController, DictationTransport } from '../index.js';
+import type {
+  AudioCaptureOptions,
+  DictationController,
+  DictationControllerOptions,
+  DictationTransport,
+} from '../index.js';
 
 const controllers: DictationController[] = [];
 afterEach(async () => {
@@ -16,7 +21,10 @@ afterEach(async () => {
   vi.useRealTimers();
   document.body.innerHTML = '';
 });
-function fixture(autoSend?: { enabled: boolean; silenceMs: number; keyword?: string }) {
+function fixture(
+  autoSend?: DictationControllerOptions['autoSend'],
+  options: Partial<DictationControllerOptions> = {},
+) {
   const element = document.createElement('textarea');
   element.value = 'before after';
   element.setSelectionRange(7, 7);
@@ -58,6 +66,7 @@ function fixture(autoSend?: { enabled: boolean; silenceMs: number; keyword?: str
     capture,
     audio: { encoding: 'pcm_s16le', sampleRate: 16000, channels: 1 },
     autoSend,
+    ...options,
   });
   controllers.push(controller);
   return {
@@ -288,9 +297,30 @@ describe('auto send', () => {
     expect(f.controller.getSnapshot().status).toBe('listening');
     expect(f.submit).not.toHaveBeenCalled();
   });
-  it('limits session duration and finalization wait', async () => {
+  it('keeps listening with no session limit by default', async () => {
     vi.useFakeTimers();
     const f = fixture();
+    await f.controller.start();
+    f.emit(partial(1, 'kept', 'words'));
+    await vi.advanceTimersByTimeAsync(3 * 60 * 60 * 1000);
+    expect(f.controller.getSnapshot().status).toBe('listening');
+  });
+  it('sends on the keyword alone, with no pause countdown, when afterPause is false', async () => {
+    vi.useFakeTimers();
+    const f = fixture({ enabled: true, silenceMs: 1000, keyword: 'over', afterPause: false });
+    await f.controller.start();
+    f.emit(partial(1, 'Hello there', ''));
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(f.controller.getSnapshot().countdownMs).toBeNull();
+    expect(f.submit).not.toHaveBeenCalled();
+    f.setFinal('Hello there over');
+    f.emit(partial(2, 'Hello there over', ''));
+    await vi.waitFor(() => expect(f.submit).toHaveBeenCalledTimes(1));
+    expect(f.submitted).toEqual(['before Hello thereafter']);
+  });
+  it('honours a host session limit and the finalization wait', async () => {
+    vi.useFakeTimers();
+    const f = fixture(undefined, { maxSessionMs: 300000 });
     f.deferEnd();
     await f.controller.start();
     f.emit(partial(1, 'kept', 'words'));

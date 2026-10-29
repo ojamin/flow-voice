@@ -1,4 +1,4 @@
-import { DEFAULT_LIMITS, matchSendKeyword } from '@flow-voice/core';
+import { DEFAULT_LIMITS, MAX_TIMER_MS, matchSendKeyword } from '@flow-voice/core';
 import type { SpeechError, SttServerMessage } from '@flow-voice/core';
 import type {
   AudioCapture,
@@ -365,15 +365,18 @@ export function createDictationController(
         await Promise.race([s.capture.start(), s.done]);
         if (!current(s) || snapshot.status !== 'connecting') return;
         publish({ status: 'listening' });
-        s.timers.push(
-          setTimeout(() => {
-            void finishSession(s).catch(() => {});
-          }, options.maxSessionMs ?? DEFAULT_LIMITS.maxSessionMs),
-        );
+        const sessionMs = options.maxSessionMs ?? DEFAULT_LIMITS.maxSessionMs;
+        if (sessionMs <= MAX_TIMER_MS)
+          s.timers.push(
+            setTimeout(() => {
+              void finishSession(s).catch(() => {});
+            }, sessionMs),
+          );
         const tick = () => {
           if (!current(s) || snapshot.status !== 'listening') return;
           if (
             options.autoSend?.enabled &&
+            options.autoSend.afterPause !== false &&
             !s.autoCancelled &&
             !s.sending &&
             [snapshot.committed, snapshot.tentative].join('').trim()

@@ -85,9 +85,11 @@ export interface DictationControllerOptions {
   composer: ComposerAdapter;
   audio: PcmInput;
   capture?(options: AudioCaptureOptions): AudioCapture;
-  autoSend?: { enabled: boolean; silenceMs: number; keyword?: string };
+  /** `afterPause: false` sends only on `keyword`, with no silence countdown. */
+  autoSend?: { enabled: boolean; silenceMs: number; keyword?: string; afterPause?: boolean };
   language?: string;
-  /** Host synchronously stops playback before microphone acquisition (half duplex). */
+  /** Optional: host synchronously stops playback before microphone acquisition (half duplex).
+   * Without it, capture and playback run together; capture asks for echo cancellation. */
   beforeCapture?(): void;
   playbackGate?: { stop(): void | Promise<void>; isPlaying(): boolean };
   workletUrl?: string | URL;
@@ -128,6 +130,10 @@ export interface SpeechPlayer extends ExternalStore<SpeechPlayerSnapshot> {
   skipToEnd(): void;
   /** Clear queue and invalidate all in-flight synthesis/sections. */
   stop(): void;
+  /** Route PCM playback through one continuously playing media element, so mobile browsers
+   * keep the page running with the screen off or another app in front (like a call) and show
+   * media controls. Call inside a user gesture to enable. */
+  setBackgroundAudio(enabled: boolean): Promise<void>;
   dispose(): void;
 }
 export interface SpeechPlayerOptions {

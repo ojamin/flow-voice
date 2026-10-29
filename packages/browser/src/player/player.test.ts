@@ -10,7 +10,10 @@ class FakeSource {
   buffer: unknown;
   onended: (() => void) | null = null;
   stopped = false;
-  connect() {}
+  target: unknown;
+  connect(target: unknown) {
+    this.target = target;
+  }
   disconnect() {}
   start() {
     sources.push(this);
@@ -48,6 +51,21 @@ class FakeContext {
   }
   createBufferSource() {
     return new FakeSource();
+  }
+  createMediaStreamDestination() {
+    return { stream: { id: 'background' } };
+  }
+}
+class FakeMedia {
+  static played: FakeMedia[] = [];
+  srcObject: unknown = null;
+  paused = true;
+  async play() {
+    this.paused = false;
+    FakeMedia.played.push(this);
+  }
+  pause() {
+    this.paused = true;
   }
 }
 const tick = async () => {
@@ -288,7 +306,35 @@ describe('speech player', () => {
     await tick();
     expect(p.getSnapshot().messageId).toBe('three');
   });
-  it('bounds queue admission and permits explicit manual rereading', async () => {
+  it('plays through one running media element in background mode, and back to the speakers', async () => {
+    vi.stubGlobal('Audio', FakeMedia);
+    FakeMedia.played = [];
+    const p = player();
+    await p.setBackgroundAudio(true);
+    const media = FakeMedia.played[0]!;
+    expect(media.paused).toBe(false);
+    expect(media.srcObject).toEqual({ id: 'background' });
+    p.enqueue(message('one', 'a'));
+    await tick();
+    expect(sources[0]!.target).toEqual({ stream: { id: 'background' } });
+    sources[0]!.end();
+    await tick();
+    // Silence between replies keeps the element playing.
+    expect(media.paused).toBe(false);
+    await p.setBackgroundAudio(false);
+    expect(media.paused).toBe(true);
+    p.enqueue(message('two', 'b'));
+    await tick();
+    expect(sources.at(-1)!.target).toEqual({});
+  });
+  it('queues a whole long reply by default', () => {
+    const p = player();
+    const texts = Array.from({ length: 500 }, (_, index) => `Sentence ${index}.`);
+    p.enqueue(message('long', ...texts));
+    expect(p.getSnapshot().error).toBeNull();
+    expect(p.getSnapshot().queuedMessages).toBe(1);
+  });
+  it('bounds queue admission when the host sets a limit, and permits manual rereading', async () => {
     const p = player(undefined, { maxQueuedSections: 1 });
     p.enqueue(message('one', 'a'));
     p.enqueue(message('two', 'b'));

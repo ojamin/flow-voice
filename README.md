@@ -71,7 +71,7 @@ MOSS-compat speaks the author's speech gateway protocol: WebSocket
 TTS supports speed 1 and at most 2000 UTF-16 code units per request. Split longer
 prose at section boundaries. See NOTICE for provenance.
 
-## Install prebuilt v0.2.0
+## Install prebuilt v0.3.0
 
 Use Node >=22 and pnpm 12.3.4. Tagged releases contain committed ESM, declarations
 and the worklet: no registry publication or install-time build is required.
@@ -79,10 +79,10 @@ and the worklet: no registry publication or install-time build is required.
 ```json
 {
   "dependencies": {
-    "@flow-voice/core": "github:ojamin/flow-voice#v0.2.0&path:/packages/core",
-    "@flow-voice/browser": "github:ojamin/flow-voice#v0.2.0&path:/packages/browser",
-    "@flow-voice/server": "github:ojamin/flow-voice#v0.2.0&path:/packages/server",
-    "@flow-voice/react": "github:ojamin/flow-voice#v0.2.0&path:/packages/react",
+    "@flow-voice/core": "github:ojamin/flow-voice#v0.3.0&path:/packages/core",
+    "@flow-voice/browser": "github:ojamin/flow-voice#v0.3.0&path:/packages/browser",
+    "@flow-voice/server": "github:ojamin/flow-voice#v0.3.0&path:/packages/server",
+    "@flow-voice/react": "github:ojamin/flow-voice#v0.3.0&path:/packages/react",
     "react": "^19.0.0"
   }
 }
@@ -168,8 +168,15 @@ export function Dictation({ controller }) {
 Serve `@flow-voice/browser/worklet` as a JavaScript asset and pass its URL as
 `workletUrl`; do not import it into the page's main realm. Microphone capture
 requires a secure context and microphone permission. Serve the worklet same-origin
-under a matching CSP. Stop playback before microphone acquisition and stop capture
-before playback. Auto-send and auto-read default off. Seed an auto-reader with
+under a matching CSP. Capture and playback may run together: capture requests echo
+cancellation, and `playbackGate`/`gate` remain available for hosts that want half
+duplex. Auto-send and auto-read default off. `autoSend.afterPause: false` sends only on
+the keyword, with no silence countdown.
+
+`player.setBackgroundAudio(true)`, called inside a user gesture, plays PCM through one
+continuously running media element. Mobile browsers then treat the page like a call
+or media player: it keeps running with the screen off or another app in front, and the
+host's Media Session metadata and actions appear in the system controls. Seed an auto-reader with
 existing messages, admit only future non-own live messages, and stop it on navigation.
 
 ## Speech markup: only `<tts>`
@@ -184,8 +191,10 @@ cannot retract audio already played: stop playback on malformed input.
 
 ## Limits and security
 
-Defaults include five minutes of dictation, 4000 synthesis text characters and 32
-queued sections. Text limits count UTF-16 code units. Controller connection and
+Dictation has no session limit and messages are read whole: the player queues every
+section by default. Hosts may still set `maxSessionMs`, `maxTextChars` (section
+extraction) and `maxQueuedSections`. Each synthesis request is limited to 4000 text
+characters; sections stay far below it. Text limits count UTF-16 code units. Controller connection and
 finalization timeouts default to ten seconds. Bounded audio queues fail rather
 than silently dropping accepted samples. Duration limits flush before ending;
 finalization timeout aborts upstream. Synthesis cancellation aborts the request.
@@ -227,7 +236,7 @@ Optional settings are `FLOW_VOICE_SMOKE_BASE_URL`, `FLOW_VOICE_SMOKE_TTS_MODEL`,
 From a clean, verified source commit:
 
 ```sh
-node scripts/release.mjs ../flow-voice-v0.2.0-tree
+node scripts/release.mjs ../flow-voice-v0.3.0-tree
 ```
 
 The script cleans/builds all packages and writes a new external directory, refusing
@@ -237,8 +246,8 @@ devDependencies and source exports are omitted. Repeated builds using the same
 source/toolchain produce identical trees with no generated timestamps.
 
 Create a release commit whose parent is the source commit and whose tree is exactly
-that output, with subject `Release v0.2.0`. Tag it with annotated tag `v0.2.0` and
-message `flow-voice v0.2.0`. Keep main on the source commit and the release branch
+that output, with subject `Release v0.3.0`. Tag it with annotated tag `v0.3.0` and
+message `flow-voice v0.3.0`. Keep main on the source commit and the release branch
 on the prebuilt commit. Before publishing, install all four packages into a fresh
 consumer with default pnpm supply-chain policy, check dist imports and load the
 worklet in an AudioWorklet context. Never move a published tag; use a new version.

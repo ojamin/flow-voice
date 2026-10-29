@@ -110,6 +110,13 @@ describe('one code-aware tts projection', () => {
     expect(result.reduce((n, section) => n + section.text.length, 0)).toBeLessThanOrEqual(24);
     expect(() => speechSections('text', { maxSectionChars: 0 })).toThrow();
   });
+  it('reads a whole long untagged message, past the per-request synthesis limit', () => {
+    const paragraph = 'This sentence belongs to a long reply. '.repeat(40);
+    const source = Array.from({ length: 8 }, () => paragraph).join('\n\n');
+    const spoken = speechSections(source).reduce((sum, section) => sum + section.text.length, 0);
+    expect(source.length).toBeGreaterThan(10_000);
+    expect(spoken).toBeGreaterThan(source.length - 400);
+  });
   it('preserves escaped tags and does not interpret backticks across paragraph boundaries', () => {
     expect(displayMarkdown('\\<tts>literal\\</tts>')).toBe('\\<tts>literal\\</tts>');
     expect(displayMarkdown('`unclosed\n\n<tts>visible</tts>\n\n`')).toBe(

@@ -18,6 +18,7 @@ function store(status: SpeechPlayerSnapshot['status']): SpeechPlayer {
         status === 'error' ? { code: 'provider_error', message: 'Speech playback failed' } : null,
     }),
     subscribe: () => () => {},
+    setBackgroundAudio: vi.fn(async () => {}),
     unlock: vi.fn(async () => {}),
     enqueue: vi.fn(),
     append: vi.fn(),

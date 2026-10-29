@@ -4,7 +4,7 @@ import type {
   SpeechPlayerOptions,
   SpeechPlayerSnapshot,
 } from '../index.js';
-import type { SynthesisAudio } from '@flow-voice/core';
+import { DEFAULT_LIMITS, type SynthesisAudio } from '@flow-voice/core';
 import { createAudioOutput, check, abortable } from './audio.js';
 
 export function createSpeechPlayer(options: SpeechPlayerOptions): SpeechPlayer {
@@ -164,7 +164,7 @@ export function createSpeechPlayer(options: SpeechPlayerOptions): SpeechPlayer {
     );
     if (!fresh.length) return;
     const count = queue.reduce((sum, item) => sum + item.sections.length, 0);
-    if (count + fresh.length > (options.maxQueuedSections ?? 32)) {
+    if (count + fresh.length > (options.maxQueuedSections ?? DEFAULT_LIMITS.maxQueuedSections)) {
       emit({ error: { code: 'limit_exceeded', message: 'Speech queue is full' } });
       return;
     }
@@ -218,6 +218,7 @@ export function createSpeechPlayer(options: SpeechPlayerOptions): SpeechPlayer {
       output.pause();
       emit({ status: 'paused' });
     },
+    setBackgroundAudio: (enabled) => output.setBackground(enabled),
     async resume() {
       if (disposed || options.gate?.isMicrophoneActive()) return;
       try {

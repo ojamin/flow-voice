@@ -53,6 +53,12 @@ it('renders native accessible controls, updates external state, and exposes canc
   expect(host.querySelector('meter')?.value).toBe(0.4);
   expect(host.textContent).toContain('Sending in 2 seconds');
   await act(async () => {
+    snapshot = { ...snapshot, countdownMs: 800 };
+    listeners.forEach((listener) => listener());
+  });
+  expect(host.textContent).toContain('Sending in 1 second');
+  expect(host.textContent).not.toContain('1 seconds');
+  await act(async () => {
     host.querySelectorAll('button')[1].click();
     button.click();
   });

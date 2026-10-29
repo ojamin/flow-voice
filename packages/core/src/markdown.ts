@@ -113,13 +113,19 @@ export interface SpeechSection {
   text: string;
 }
 export interface SpeechSectionOptions {
+  /** Total characters to read. Unlimited by default: the whole message is read. */
   maxTextChars?: number;
   maxSectionChars?: number;
 }
 function sectionTexts(texts: readonly string[], options: SpeechSectionOptions): SpeechSection[] {
-  const cap = options.maxTextChars ?? 4000;
+  const cap = options.maxTextChars ?? Number.POSITIVE_INFINITY;
   const size = options.maxSectionChars ?? 500;
-  if (!Number.isInteger(cap) || cap < 1 || !Number.isInteger(size) || size < 1)
+  if (
+    !(cap === Number.POSITIVE_INFINITY || Number.isInteger(cap)) ||
+    cap < 1 ||
+    !Number.isInteger(size) ||
+    size < 1
+  )
     throw new RangeError('Section limits must be positive integers');
   let remaining = cap;
   const sections: SpeechSection[] = [];

@@ -1,4 +1,4 @@
-import { DEFAULT_LIMITS, sttClientMessageSchema } from '@flow-voice/core';
+import { DEFAULT_LIMITS, MAX_TIMER_MS, sttClientMessageSchema } from '@flow-voice/core';
 import type { SttClientMessage, SttServerMessage } from '@flow-voice/core';
 import type {
   LiveTranscriptionSession,
@@ -13,8 +13,10 @@ export function createLiveTranscriptionSession(
   options: LiveTranscriptionSessionOptions,
 ): LiveTranscriptionSession {
   const limits = { ...DEFAULT_LIMITS, ...options.limits };
+  const sessionMs = limits.maxSessionMs;
+  if (!(sessionMs === Number.POSITIVE_INFINITY || (Number.isSafeInteger(sessionMs) && sessionMs > 0)))
+    throw speechError('invalid_message');
   for (const key of [
-    'maxSessionMs',
     'maxFrameBytes',
     'maxBufferedAudioBytes',
     'finalizationMs',
@@ -178,10 +180,11 @@ export function createLiveTranscriptionSession(
               language: message.language,
               signal: controller.signal,
             });
-            timer = setTimeout(() => {
-              stopReason = 'limit';
-              stop();
-            }, limits.maxSessionMs);
+            if (sessionMs <= MAX_TIMER_MS)
+              timer = setTimeout(() => {
+                stopReason = 'limit';
+                stop();
+              }, sessionMs);
             await send({
               type: 'ready',
               audio: message.audio,

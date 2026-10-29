@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { SttServerMessage } from '@flow-voice/core';
+import { DEFAULT_LIMITS, type SttServerMessage } from '@flow-voice/core';
 import { createLiveTranscriptionSession, type SttAdapter, type SttEvent } from './index.js';
 import { createFakeAdapters } from './testing.js';
 import { BoundedQueue } from './transport.js';
@@ -185,6 +185,18 @@ describe('bounded live runner', () => {
       { type: 'ended', reason: 'error' },
     ]);
     expect(upstream.signal.aborted).toBe(true);
+  });
+  it('has no duration limit unless the host sets one', () => {
+    const upstream = fixture();
+    expect(() =>
+      createLiveTranscriptionSession({
+        adapter: upstream.adapter,
+        limits: { maxSessionMs: Number.POSITIVE_INFINITY },
+        signal: new AbortController().signal,
+        async send() {},
+      }),
+    ).not.toThrow();
+    expect(DEFAULT_LIMITS.maxSessionMs).toBe(Number.POSITIVE_INFINITY);
   });
   it('duration limit flushes, ends with limit, and accepts no more audio', async () => {
     const upstream = fixture(),

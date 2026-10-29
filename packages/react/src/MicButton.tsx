@@ -3,6 +3,9 @@ import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import type { DictationController, DictationSnapshot } from '@flow-voice/browser';
 import { useDictation } from './dictation.js';
 
+const sendingIn = (seconds: number) =>
+  `Sending in ${seconds} ${seconds === 1 ? 'second' : 'seconds'}`;
+
 export interface MicButtonProps extends Omit<
   ButtonHTMLAttributes<HTMLButtonElement>,
   'children' | 'onClick'
@@ -77,7 +80,7 @@ export function MicButton({
       {snapshot.countdownMs !== null && (
         <span className={statusClassName}>
           <span role="status" aria-live="polite">
-            Sending in {Math.ceil(snapshot.countdownMs / 1000)} seconds
+            {sendingIn(Math.ceil(snapshot.countdownMs / 1000))}
           </span>{' '}
           <button type="button" onClick={() => controller.cancelAutoSend()}>
             Cancel automatic send
