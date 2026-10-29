@@ -1,5 +1,5 @@
 import { pcmInputSchema } from '@flow-voice/core';
-import { requestedSynthesis } from '../audio-stream.js';
+import { requestedHttpSynthesis } from '../audio-stream.js';
 import type { ProviderEndpointConfig } from '@flow-voice/core';
 import type { SttAdapter, TtsAdapter } from '../index.js';
 
@@ -8,11 +8,9 @@ import {
   apiKey,
   providerUrl,
   checkedFetch,
-  responseAudio,
   responseJson,
   parseVoices,
   MAX_VOICES,
-  linkedAbort,
 } from '../transport.js';
 import { nativeSession } from './native-session.js';
 
@@ -103,7 +101,7 @@ export function createDeepgramAdapters(config: ProviderEndpointConfig): {
         { kind: 'encoded', mimeType: 'audio/ogg;codecs=opus' },
       ],
     },
-    synthesize: requestedSynthesis(async function* (request) {
+    synthesize: requestedHttpSynthesis(async function (request) {
       if (request.signal.aborted) throw providerError('cancelled');
       const url = providerUrl(config, '/v1/speak', false);
       url.searchParams.set('model', request.voice ?? defaultVoice);
@@ -127,20 +125,16 @@ export function createDeepgramAdapters(config: ProviderEndpointConfig): {
         url.searchParams.set('encoding', 'opus');
         url.searchParams.set('container', 'ogg');
       } else throw providerError('unsupported');
-      const link = linkedAbort(request.signal);
       try {
         const response = await checkedFetch(url, {
           method: 'POST',
           headers: { Authorization: `Token ${apiKey(config)}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ text: request.text }),
-          signal: link.controller.signal,
+          signal: request.signal,
         });
-        yield* responseAudio(response);
+        return response;
       } catch (error) {
         throw Object.assign(new Error(), normalizeSpeechError(error));
-      } finally {
-        link.controller.abort();
-        link.dispose();
       }
     }),
     async listVoices(signal) {

@@ -3,6 +3,45 @@ import type { AudioFormat } from '@flow-voice/core';
 import { createAdapters, synthesize, synthesisResponse } from '@flow-voice/server';
 import { synthesisAudioFromResponse } from './index.js';
 
+it.each([undefined, { kind: 'pcm', encoding: 'pcm_s16le', sampleRate: 24000, channels: 1 } as const])(
+  'uses OpenAI-compatible reported metadata rather than the selected format: %j', async (format) => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(new Uint8Array([1, 2, 3, 4]), {
+      headers: { 'Content-Type': 'audio/pcm; encoding=pcm_s16le; rate=22050; channels=2' },
+    }));
+    try {
+      const adapter = createAdapters({ provider: 'openai', model: 'tts-1', baseUrl: 'https://speech.example' }).tts!;
+      const audio = await synthesize({ adapter, text: 'Hi', format, signal: new AbortController().signal });
+      const { headers, body } = await synthesisResponse(audio);
+      const decoded = await synthesisAudioFromResponse(new Response(body, { headers }));
+      expect(decoded.format).toEqual({ kind: 'pcm', encoding: 'pcm_s16le', sampleRate: 22050, channels: 2 });
+      expect(new Uint8Array(await new Response(decoded.stream).arrayBuffer())).toEqual(new Uint8Array([1, 2, 3, 4]));
+    } finally { fetch.mockRestore(); }
+  },
+);
+
+it('rejects contradictory provider metadata and cancels the HTTP body', async () => {
+  const cancel = vi.fn();
+  const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(new ReadableStream({ cancel }), {
+    headers: { 'Content-Type': 'audio/pcm; encoding=pcm_s16le; rate=22050; channels=2', 'X-Audio-Sample-Rate': '24000' },
+  }));
+  try {
+    const adapter = createAdapters({ provider: 'openai', model: 'tts-1' }).tts!;
+    await expect(synthesize({ adapter, text: 'Hi', signal: new AbortController().signal })).rejects.toMatchObject({ code: 'invalid_message' });
+    expect(cancel).toHaveBeenCalledOnce();
+  } finally { fetch.mockRestore(); }
+});
+
+it.each<Record<string, string>>([{}, { 'Content-Type': 'audio/pcm' }])('keeps the selected PCM format without usable provider metadata: %j', async (headers) => {
+  const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(new Uint8Array(4), { headers }));
+  try {
+    const adapter = createAdapters({ provider: 'deepgram', model: 'aura-2-thalia-en', apiKey: 'secret' }).tts!;
+    const format = { kind: 'pcm', encoding: 'pcm_s16le', sampleRate: 16000, channels: 1 } as const;
+    const audio = await synthesize({ adapter, text: 'Hi', format, signal: new AbortController().signal });
+    expect(audio.format).toEqual(format);
+    await audio.stream.cancel();
+  } finally { fetch.mockRestore(); }
+});
+
 it.each<AudioFormat>([
   { kind: 'pcm', encoding: 'pcm_s16le', sampleRate: 24000, channels: 1 },
   { kind: 'pcm', encoding: 'pcm_s16le', sampleRate: 44100, channels: 2 },

@@ -587,6 +587,23 @@ it('keeps unsaved STT options, tests them without a write and resets the edited 
   await user.click(screen.getByRole('button', { name: 'Reset' }));
   expect((screen.getByRole('textbox', { name: 'Model' }) as HTMLInputElement).value).toBe('');
 });
+it('maps canonical endpoint validation issues to provider, model and speed fields', async () => {
+  const user = userEvent.setup();
+  const onSave = vi.fn();
+  const onTest = vi.fn();
+  render(<SpeechEndpointForm kind="tts" initial={null} providers={[]} onSave={onSave} onTest={onTest} />);
+  await user.clear(screen.getByRole('spinbutton', { name: 'Default speed' }));
+  await user.click(screen.getByRole('button', { name: 'Test connection' }));
+  expect(screen.getByRole('combobox', { name: 'Provider' }).getAttribute('aria-invalid')).toBe('true');
+  expect(screen.getByRole('textbox', { name: 'Model' }).getAttribute('aria-invalid')).toBe('true');
+  expect(screen.getByRole('spinbutton', { name: 'Default speed' }).getAttribute('aria-invalid')).toBe('true');
+  expect(screen.getByText('Choose a provider.')).toBeTruthy();
+  expect(screen.getByText('Enter a model.')).toBeTruthy();
+  expect(screen.getByText('Speed must be between 0.5 and 2.')).toBeTruthy();
+  expect(onTest).not.toHaveBeenCalled();
+  expect(onSave).not.toHaveBeenCalled();
+});
+
 it('shows the concrete OpenAI Connection option only there and never sends it to another provider', async () => {
   const user = userEvent.setup();
   const onTest = vi.fn(async () => ({ ok: true as const }));

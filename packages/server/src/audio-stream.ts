@@ -1,10 +1,12 @@
 import type { AudioFormat, SynthesisAudio, SynthesisRequest } from '@flow-voice/core';
+import { audioFormatFromHeaders } from '@flow-voice/core';
 import type { AudioChunk, TtsAdapter } from './index.js';
 import { normalizeSpeechError, speechError } from './errors.js';
 import { linkedAbort } from './transport.js';
 
 /** Own the response reader immediately, so abort before the first pull cancels it too. */
 export function audioFromResponse(response: Response, format: AudioFormat, signal: AbortSignal): SynthesisAudio {
+  if (signal.aborted) throw speechError('cancelled');
   if (!response.body) throw speechError('provider_error');
   const reader = response.body.getReader();
   return audioFromChunks(() => ({
@@ -24,17 +26,39 @@ export function audioFromResponse(response: Response, format: AudioFormat, signa
   }), format, signal, true);
 }
 
-/** Adapt request-selected provider protocols without buffering their audio. */
+function selectedFormat(adapter: TtsAdapter, request: SynthesisRequest & { format?: AudioFormat }): AudioFormat {
+  const format = request.format ?? adapter.capabilities.formats[0];
+  if (!format || !adapter.capabilities.formats.some((candidate) => candidate.kind === 'encoded'
+    ? format.kind === 'encoded' && candidate.mimeType === format.mimeType
+    : format.kind === 'pcm' && candidate.encoding === format.encoding && candidate.sampleRate === format.sampleRate && candidate.channels === format.channels))
+    throw speechError('unsupported');
+  return format;
+}
+
+/** Adapt request-selected non-HTTP audio protocols without buffering their audio. */
 export function requestedSynthesis(
   generate: (request: SynthesisRequest & { format: AudioFormat; signal: AbortSignal }) => AsyncIterable<AudioChunk>,
 ): TtsAdapter['synthesize'] {
   return async function (this: TtsAdapter, request) {
-    const format = request.format ?? this.capabilities.formats[0];
-    if (!format || !this.capabilities.formats.some((candidate) => candidate.kind === 'encoded'
-      ? format.kind === 'encoded' && candidate.mimeType === format.mimeType
-      : format.kind === 'pcm' && candidate.encoding === format.encoding && candidate.sampleRate === format.sampleRate && candidate.channels === format.channels))
-      throw speechError('unsupported');
+    const format = selectedFormat(this, request);
     return audioFromChunks((signal) => generate({ ...request, format, signal }), format, request.signal);
+  };
+}
+
+/** HTTP metadata describes the actual output, even when it differs from the selection. */
+export function requestedHttpSynthesis(
+  generate: (request: SynthesisRequest & { format: AudioFormat; signal: AbortSignal }) => Promise<Response>,
+): TtsAdapter['synthesize'] {
+  return async function (this: TtsAdapter, request) {
+    const format = selectedFormat(this, request);
+    if (request.signal.aborted) throw speechError('cancelled');
+    const response = await generate({ ...request, format });
+    try {
+      return audioFromResponse(response, audioFormatFromHeaders(response.headers, format), request.signal);
+    } catch (error) {
+      try { await response.body?.cancel(); } catch { /* Preserve metadata failure. */ }
+      throw error;
+    }
   };
 }
 

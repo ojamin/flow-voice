@@ -125,18 +125,6 @@ export function SpeechEndpointForm({
   async function submit(action: 'save' | 'test' | 'clear') {
     if (busy.current) return;
     const issues: Record<string, string> = {};
-    if (action !== 'clear') {
-      if (!draft.provider.trim()) issues.provider = 'Choose a provider.';
-      if (!draft.model.trim()) issues.model = 'Enter a model.';
-      if (
-        kind === 'tts' &&
-        (!draft.speed.trim() ||
-          !Number.isFinite(Number(draft.speed)) ||
-          Number(draft.speed) < 0.5 ||
-          Number(draft.speed) > 2)
-      )
-        issues.speed = 'Speed must be between 0.5 and 2.';
-    }
     const options = { ...baseline?.options };
     if (kind === 'stt') {
       delete options.language;
@@ -159,11 +147,15 @@ export function SpeechEndpointForm({
       options,
       ...(draft.replacing && draft.apiKey.trim() ? { apiKey: draft.apiKey.trim() } : {}),
     };
-    if (action !== 'clear' && !Object.keys(issues).length) {
+    if (action !== 'clear') {
       // The same normalization and key-rebinding rule the host applies on test and save.
       const checked = validateSpeechEndpointDraft(value, baseline);
       if (checked.ok) value = checked.value;
-      else for (const issue of checked.issues) issues[issue.path[0] ?? 'form'] ??= issue.message;
+      else for (const issue of checked.issues) {
+        const field = issue.path[0] === 'options' && issue.path[1] === 'speed'
+          ? 'speed' : issue.path[0] ?? 'form';
+        issues[field] ??= issue.message;
+      }
     }
     setErrors(issues);
     setStatus('');

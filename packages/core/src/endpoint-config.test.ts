@@ -5,6 +5,16 @@ import { audioFormatSchema, dictationPreferenceSchema, normalizeDictationPrefere
 const previous = { provider: 'openai', baseUrl: 'https://speech.example:443/v1/' };
 const draft = { provider: 'openai', model: ' new-model ', baseUrl: 'https://speech.example/v1' };
 
+it.each<[object, string[], string]>([
+  [{ provider: ' ' }, ['provider'], 'Choose a provider.'],
+  [{ model: ' ' }, ['model'], 'Enter a model.'],
+  ...[0, 0.49, 2.01, NaN, Infinity].map((speed): [object, string[], string] => [
+    { options: { speed } }, ['options', 'speed'], 'Speed must be between 0.5 and 2.',
+  ]),
+])('returns friendly canonical field issues: %j', (change, path, message) => {
+  expect(validateSpeechEndpointDraft({ ...draft, ...change })).toMatchObject({ ok: false, issues: expect.arrayContaining([{ path, message }]) });
+});
+
 it.each(['https://speech.example/v1', 'https://speech.example:443/v1/', 'https://speech.example/v1///'])('normalizes identity without rebinding the key: %s', (baseUrl) => {
   expect(validateSpeechEndpointDraft({ ...draft, baseUrl, options: { speed: 1.5 } }, previous))
     .toEqual({ ok: true, value: { ...draft, model: 'new-model', baseUrl: draft.baseUrl, options: { speed: 1.5 } } });

@@ -457,13 +457,12 @@ describe('native provider protocols on loopback servers', () => {
       model: 'tts',
       baseUrl: upstream.url,
     }).tts!;
-    const audio = await synthesize({
+    await expect(synthesize({
       adapter,
       text: 'hello',
       format: pcm24,
       signal: new AbortController().signal,
-    });
-    await expect(audio.stream.getReader().read()).rejects.toMatchObject({
+    })).rejects.toMatchObject({
       code: status === 401 ? 'unauthorized' : status === 429 ? 'rate_limited' : 'provider_error',
     });
   });

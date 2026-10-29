@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createAdapters, listVoices, resolveVoice, synthesize, type TtsAdapter } from './index.js';
 import { createFakeAdapters } from './testing.js';
 import { deferred } from './test-servers.js';
@@ -6,15 +6,18 @@ import { requestedSynthesis } from './audio-stream.js';
 const format = { kind: 'pcm', encoding: 'pcm_s16le', sampleRate: 16000, channels: 1 } as const;
 describe('synthesis boundary', () => {
   it.each(['openai', 'elevenlabs', 'cartesia', 'deepgram'])('request-selected %s returns its default or explicit format', async (provider) => {
-    const adapter = createAdapters({ provider, model: 'model' }).tts!;
-    const request = { text: 'Hi', signal: new AbortController().signal };
-    const defaultAudio = await adapter.synthesize(request);
-    expect(defaultAudio.format).toEqual(adapter.capabilities.formats[0]);
-    await defaultAudio.stream.cancel();
-    const selected = adapter.capabilities.formats.at(-1)!;
-    const selectedAudio = await adapter.synthesize({ ...request, format: selected });
-    expect(selectedAudio.format).toEqual(selected);
-    await selectedAudio.stream.cancel();
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(new Uint8Array(4)));
+    try {
+      const adapter = createAdapters({ provider, model: 'model', apiKey: 'secret' }).tts!;
+      const request = { text: 'Hi', voice: 'alloy', signal: new AbortController().signal };
+      const defaultAudio = await adapter.synthesize(request);
+      expect(defaultAudio.format).toEqual(adapter.capabilities.formats[0]);
+      await defaultAudio.stream.cancel();
+      const selected = adapter.capabilities.formats.at(-1)!;
+      const selectedAudio = await adapter.synthesize({ ...request, format: selected });
+      expect(selectedAudio.format).toEqual(selected);
+      await selectedAudio.stream.cancel();
+    } finally { fetch.mockRestore(); }
   });
   it('returns response-reported audio unchanged without request-format labelling or equality gates', async () => {
     const audio = { format: { ...format, sampleRate: 22050 }, mimeType: 'audio/pcm', stream: new ReadableStream<Uint8Array>() };

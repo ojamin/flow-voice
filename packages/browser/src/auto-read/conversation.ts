@@ -32,12 +32,13 @@ export function createConversationMessages(): ConversationMessages {
   let known = new Map<string, { markdown: string; complete: boolean }>();
   // Only live-owned partials may grow across a refresh. A partial already in the first
   // loaded baseline is history too; it must not become speech just because it changed.
-  const streaming = new Set<string>();
+  // Retain the latest published text so overlapping refreshes cannot rewind a live stream.
+  const streaming = new Map<string, string>();
   /** Newest ordinal seen: an unknown reply behind it was paged in, not just written. */
   let frontier = -1;
   const publish = ({ conversation: target, ...arrival }: ConversationArrival) => {
     if (target !== conversation) return;
-    if (arrival.source === 'live' && !arrival.message.complete) streaming.add(arrival.message.id);
+    if (arrival.source === 'live' && !arrival.message.complete) streaming.set(arrival.message.id, arrival.message.markdown);
     else streaming.delete(arrival.message.id);
     for (const listener of listeners) listener(arrival);
   };
@@ -67,6 +68,9 @@ export function createConversationMessages(): ConversationMessages {
         consumed = true;
         if (audience !== epoch || target !== conversation) return;
         for (const { ordinal, ...message } of [...replies].sort((a, b) => a.ordinal - b.ordinal)) {
+          const published = streaming.get(message.id);
+          if (published !== undefined && published.length > message.markdown.length &&
+            published.startsWith(message.markdown)) continue;
           const previous = before.get(message.id);
           if (previous?.markdown === message.markdown && previous.complete === message.complete) continue;
           publish({ conversation: target, message,

@@ -197,19 +197,25 @@ iterator. This is a breaking adapter contract change. The high-level server
 maxTextChars? })` validates the request and returns the adapter's audio unchanged.
 Always use the **returned** format for playback and HTTP delivery. Capabilities'
 `formats` lists request-selectable formats only and may be empty. Request-selected
-providers choose `formats[0]` when the request omits its format; response-reported
-providers determine the actual format from their response, not a model name or
-the request. No resampling or transcoding is implied. Cancel the returned stream
+providers choose `formats[0]` when the request omits its format. HTTP audio
+responses override that selection with reported metadata, even when an explicit
+request selected a different format. Protocols without audio metadata (such as
+Cartesia's SSE framing) keep the selection. Response-reported providers determine
+the actual format from their response, not a model name or the request.
+No resampling or transcoding is implied. Cancel the returned stream
 when delivery stops. `checkSpeechEndpoint` probes synthesis without requiring an
 advertised format, and `synthesisResponse` still waits for the first audio chunk
 before returning headers to the host.
 
-Core's `audioFormatFromHeaders(headers)` is the shared provider/server/browser
+Core's `audioFormatFromHeaders(headers, fallback?)` is the shared provider/server/browser
 metadata parser. PCM requires explicit `pcm_s16le` encoding, a positive integer
 sample rate and mono/stereo channels, from `X-Audio-*` headers or `audio/pcm`
 parameters (`encoding`, `rate`, `channels`). Overlapping declarations must agree;
 quoted numeric parameters are supported. Missing, contradictory, duplicate or
 ambiguous metadata throws `invalid_message`; `audio/L16` is not little endian.
+Request-selected HTTP adapters supply the selected format as `fallback` for
+absent or incomplete metadata, never for contradictory or invalid declarations.
+A bare encoded media type matching the selected format preserves its codecs.
 Encoded MIME types retain their codec parameters. The existing `SYNTHESIS_HEADERS`
 wire names are unchanged, including compatibility with older HTTP consumers.
 

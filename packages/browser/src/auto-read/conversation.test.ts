@@ -30,6 +30,30 @@ function narrator(enabled = true) {
 }
 
 describe('conversation replies as auto-read arrivals', () => {
+  it('drops an older refresh partial without stopping or suppressing the rest of the reply', () => {
+    const n = narrator();
+    n.start('chat:a', []);
+    const baseline = [reply('a1', 1, '<tts>First.</tts><tts>Sec', false)];
+    n.messages.update('chat:a', baseline, true);
+    const older = n.messages.beforeRefresh('chat:a', baseline, true);
+    const newer = n.messages.beforeRefresh('chat:a', baseline, true);
+    newer([reply('a1', 1, '<tts>First.</tts><tts>Second.</tts><tts>Third', false)]);
+    older([reply('a1', 1, '<tts>First.</tts><tts>Second', false)]);
+    n.messages.update('chat:a', [reply('a1', 1, '<tts>First.</tts><tts>Second.</tts><tts>Third.</tts>')], true);
+    expect(n.spoken).toEqual(['First.', 'Second.', 'Third.']);
+    expect(n.stops()).toBe(0);
+  });
+
+  it('still rejects a non-append edit delivered by a refresh', () => {
+    const n = narrator();
+    n.start('chat:a', []);
+    const baseline = [reply('a1', 1, '<tts>First.</tts><tts>Sec', false)];
+    n.messages.update('chat:a', baseline, true);
+    n.messages.beforeRefresh('chat:a', baseline, true)([reply('a1', 1, '<tts>Edited.</tts>', false)]);
+    n.messages.update('chat:a', [reply('a1', 1, '<tts>Edited.</tts><tts>Third.</tts>')], true);
+    expect(n.spoken).toEqual(['First.']);
+    expect(n.stops()).toBe(1);
+  });
   it('accepts authoritative events without a hydration publisher, excluding replay and other audiences', () => {
     const n = narrator();
     n.start('chat:a', []);

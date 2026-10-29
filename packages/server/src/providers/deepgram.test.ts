@@ -366,7 +366,7 @@ describe('Deepgram Aura streaming HTTP', () => {
       for await (const chunk of request) body += chunk;
       expect(JSON.parse(body)).toEqual({ text: 'hello' });
       requestClosed = once(response, 'close');
-      response.writeHead(200, { 'Content-Type': 'audio/l16' });
+      response.writeHead(200, { 'Content-Type': 'audio/pcm' });
       response.write(Buffer.from([1, 2, 3, 4])); // deliberately never end
     });
     const audio = synthesizeChunks(tts, {

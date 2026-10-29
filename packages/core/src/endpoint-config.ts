@@ -4,15 +4,15 @@ import { audioFormatSchema } from './audio-format.js';
 
 export const speechEndpointOptionsSchema = z.strictObject({
   voice: z.string().trim().min(1).max(200).optional(),
-  speed: z.number().min(0.5).max(2).optional(),
+  speed: z.number({ error: 'Speed must be between 0.5 and 2.' }).min(0.5, 'Speed must be between 0.5 and 2.').max(2, 'Speed must be between 0.5 and 2.').optional(),
   language: z.string().trim().min(1).max(64).optional(),
   sttTransport: z.enum(['realtime', 'rest']).optional(),
   format: audioFormatSchema.optional(),
 });
 
 const draftSchema = z.strictObject({
-  provider: z.string().trim().min(1).max(64).regex(/^[a-z][a-z0-9.-]*$/),
-  model: z.string().trim().min(1).max(200),
+  provider: z.string().trim().min(1, 'Choose a provider.').max(64).regex(/^[a-z][a-z0-9.-]*$/),
+  model: z.string().trim().min(1, 'Enter a model.').max(200),
   baseUrl: z.string().trim().max(2048).nullable().optional(),
   apiKey: z.string().trim().min(1).max(8192).optional(),
   options: speechEndpointOptionsSchema.optional(),

@@ -6,12 +6,11 @@ import {
   checkedFetch,
   endpoint,
   parseVoices,
-  responseAudio,
   responseJsonValue,
 } from '../transport.js';
 import { websocketStt } from './session.js';
 import { restTranscription } from './openai-rest.js';
-import { requestedSynthesis } from '../audio-stream.js';
+import { requestedHttpSynthesis } from '../audio-stream.js';
 
 const pcm: AudioFormat = { kind: 'pcm', encoding: 'pcm_s16le', sampleRate: 24000, channels: 1 };
 const formats: AudioFormat[] = [
@@ -181,7 +180,7 @@ export function createOpenAIAdapters(config: ProviderEndpointConfig): {
         }
         return builtInVoices();
       },
-      synthesize: requestedSynthesis(async function* (request) {
+      synthesize: requestedHttpSynthesis(async function (request) {
         if (!customEndpoint && request.voice && !modelVoices.includes(request.voice))
           throw speechError('invalid_message');
         if (
@@ -215,7 +214,7 @@ export function createOpenAIAdapters(config: ProviderEndpointConfig): {
             ...(request.speed === undefined ? {} : { speed: request.speed }),
           }),
         });
-        yield* responseAudio(response);
+        return response;
       }),
     },
   };

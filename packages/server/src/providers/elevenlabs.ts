@@ -1,8 +1,8 @@
 import type WebSocket from 'ws';
 import type { ProviderEndpointConfig } from '@flow-voice/core';
-import type { AudioChunk, SttAdapter, SttEvent, TtsAdapter } from '../index.js';
+import type { SttAdapter, SttEvent, TtsAdapter } from '../index.js';
 import { normalizeSpeechError } from '../errors.js';
-import { requestedSynthesis } from '../audio-stream.js';
+import { requestedHttpSynthesis } from '../audio-stream.js';
 
 import {
   nativeError,
@@ -264,8 +264,7 @@ export function createElevenLabsAdapters(config: ProviderEndpointConfig): {
       formats: [...pcmFormats(ttsRates), { kind: 'encoded', mimeType: 'audio/mpeg' }],
       voices: 'list',
     },
-    synthesize: requestedSynthesis(async function* (request): AsyncIterable<AudioChunk> {
-      let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    synthesize: requestedHttpSynthesis(async function (request) {
       try {
         const voice = requireVoice(config, request.voice);
         let output: string;
@@ -301,20 +300,9 @@ export function createElevenLabsAdapters(config: ProviderEndpointConfig): {
             ...(request.speed !== undefined ? { voice_settings: { speed: request.speed } } : {}),
           }),
         });
-        if (!response.body) throw nativeError();
-        reader = response.body.getReader();
-        while (true) {
-          const result = await reader.read();
-          if (result.done) break;
-          if (result.value.byteLength) yield { audio: result.value };
-        }
+        return response;
       } catch (error) {
         throw normalizeNative(error, request.signal);
-      } finally {
-        if (reader) {
-          await reader.cancel().catch(() => {});
-          reader.releaseLock();
-        }
       }
     }),
     async listVoices(signal) {
