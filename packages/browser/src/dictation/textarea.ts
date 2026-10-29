@@ -1,4 +1,6 @@
 import type { ComposerAdapter, SubmissionBinding } from '../index.js';
+import { mapOwnedRange, textEdit } from './range.js';
+import { submitWithBinding } from './submission.js';
 
 /** Reference transaction for a native textarea. Rich editors should implement the same contract
  * using their own mapped positions. Call invalidate() before replacing a draft or navigating. */
@@ -28,24 +30,14 @@ export function createTextareaComposerAdapter(options: {
     activity();
     const next = element.value;
     if (active) {
-      let left = 0;
-      while (left < previous.length && left < next.length && previous[left] === next[left]) left++;
-      let oldRight = previous.length;
-      let newRight = next.length;
-      while (oldRight > left && newRight > left && previous[oldRight - 1] === next[newRight - 1]) {
-        oldRight--;
-        newRight--;
-      }
-      const delta = newRight - oldRight;
-      if (oldRight <= start && left < start) {
-        start += delta;
-        end += delta;
-      } else if (left < end || left === start) {
+      const mapped = mapOwnedRange(start, end, textEdit(previous, next));
+      if (mapped.touched) {
         // An edit inside speech-owned text transfers that text to the user. Freeze the
         // rendered prefix, and own only future words; never replace the user's correction.
         frozen = transcript.length;
-        start = end = Math.max(newRight, end + delta);
       }
+      start = mapped.start;
+      end = mapped.end;
     }
     previous = next;
   };
@@ -108,13 +100,7 @@ export function createTextareaComposerAdapter(options: {
         pending?.invalidate();
         return;
       }
-      try {
-        await options.submit();
-        pending?.release();
-      } catch (error) {
-        pending?.failed?.();
-        throw error;
-      }
+      await submitWithBinding(() => options.submit(), pending);
     },
     bindSubmission(value) {
       binding = value;

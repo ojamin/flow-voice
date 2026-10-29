@@ -90,6 +90,15 @@ replacing the correction. The original selected text is restored if cancelled
 before any committed words. For rich editors, use their native mapped ranges and
 implement the same transaction boundary instead of modifying DOM directly.
 
+`createEditorComposerAdapter(port)` shares the range/submission ownership rules.
+An optional `setTentative({ draft, at, text } | null)` renders interim words outside
+the document; only committed words then enter the draft. Draft change callbacks
+may supply `{ edits, replaced? }`: edits are sequential, each in its own pre-edit
+text coordinates. Report whole replacements explicitly, even if text is identical.
+Call `dispose()` to detach the port subscription and clear tentative presentation.
+For TipTap, use `createTiptapComposerAdapter` from `@flow-voice/browser/tiptap`:
+it supplies mapped text offsets and decoration widgets without altering history.
+
 Route **manual Send** through `adapter.submit()` (or your own normal submit owner
 that awaits `SubmissionBinding.finish()`). It reads the draft only after final
 transcription, then follows the ordinary host submit path. The callback supplied
