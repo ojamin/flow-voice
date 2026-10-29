@@ -64,8 +64,7 @@ export function createVoiceMode(options: {
     },
     toggle: (chatId) => mode.setEnabled(chatId, !mode.isOnFor(chatId)),
     setEnabled(chatId, enabled) {
-      if (snapshot.scope === 'on-screen') publish({ enabled, chatId });
-      else if (enabled) publish({ enabled, chatId });
+      if (snapshot.scope === 'on-screen' || enabled) publish({ enabled, chatId });
       else if (snapshot.chatId === chatId) publish({ enabled: false });
     },
     setScope(scope) {

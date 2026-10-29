@@ -43,11 +43,47 @@ send path and an authenticated transport. A full integration is:
    `createAutoReader`/`useAutoRead`. Existing history, pages loaded behind the newest reply and
    reconnect resyncs are never read; streaming replies read closed `<tts>` sections as they
    complete. `readAloud(player, message)` and `hasSpeech(markdown)` serve a Read aloud button.
+   For authoritative events instead, call `setConversation(readingChat)` and
+   `publish({ conversation, message, source: 'live' | 'history' | 'replay' })`; message IDs need
+   no numeric ordinal. For cache invalidations, capture
+   `const after = messages.beforeRefresh(chat, loadedRepliesOrUndefined, live)` **before**
+   invalidating, then call `after(refreshedReplies)`. An absent baseline is history; an empty
+   loaded baseline permits new arrivals. Each callback runs once and is fenced by audience
+   changes, even switching away and back. Call `invalidatePending()` on authorization/cache
+   disposal or disable/re-enable boundaries. Existing historical replies stay silent; partial
+   replies already published live can grow. Keep the adapter per authenticated runtime/cache,
+   never a library-global singleton. Query observation, cache projection and deletion/own-message
+   filtering remain host responsibilities.
 5. **Ask for speech.** Add `speechPlaybackInstruction(isOnFor(chat))` (core) to each
    submitted message's agent prompt: one short line (`TTS_REPLY_INSTRUCTION`) while Voice is on,
    an empty string otherwise. Tags an agent keeps writing after Voice is off are harmless.
 6. **Call.** `createCallSession({ dictation, player, onVoiceChange: () => mode.enableFor(chat),
    metadata: { title: 'Voice call' } })`, then `start()` **inside the click**. See below.
+
+For a combined chat surface, `createSpeechSession({ synthesize, createTransport, workletUrl,
+capture?, onConversationChange? })` composes the player, Voice mode, conversation messages,
+dictation and calls. Construct/dispose it in a paired host effect, not during React render.
+Use its `player`, `voiceMode` and `messages` with the same reading controls/auto-reader above;
+the auto-reader's enabled/route identity must follow the **reading audience**, not an unrelated
+screen route (so pinned one-chat playback survives navigation). Claims are effect-owned:
+`const release = session.claimConversation(chat)`; the newest remaining claim wins, including
+overlapping mounts. Call `session.leaveSurface()` on route changes instead of duplicating
+stop/cancel/end ordering. It ends input/calls but preserves pinned one-chat playback.
+
+Imperative hosts call `session.bindComposer(adapter, { config: () => config,
+preferences: () => preferences, activityTarget: document })` and dispose the returned binding
+on owner/capability/rate/language changes. Config supplies STT enabled/sampleRates/defaults.language
+and TTS enabled; preferences supply the complete `DictationPreference` plus optional language.
+Only bind enabled STT with a `supportedDictationRate(config)`; unavailable capture is rejected
+before opening transport. The returned `{ dictation, call, dispose }` owns registration and
+activity listeners; `call` is null without TTS. Preferences are read through the latest getter
+without rebuilding capture, and calls temporarily enable/restore Voice and apply hands-free
+send policy. Before replacing a controlled draft, call `session.invalidateDrafts()` synchronously.
+React's `useComposerSpeech({ session, composer, owner, config, preferences, enabled?,
+activityTarget? })` owns this bind/unbind effect and returns `{ controller, call }`; it rebinds
+only for actual availability, selected rate, effective language, owner or activity-target changes,
+not preference/config object identity. Pass a host activity target explicitly (none is assumed
+during SSR), and retain the host's normal send path and selection-before-replacement boundary.
 
 Server side, `createVoiceCatalog({ ttlMs })` caches each endpoint's voices for synthesis while
 `refresh` serves a settings screen; `resolveVoice` picks the voice to use.

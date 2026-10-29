@@ -10,6 +10,8 @@ import type {
 } from '@flow-voice/core';
 import type { PlaybackGate } from './player/gate.js';
 export { createCallSession } from './call-session.js';
+export { createSpeechSession, supportedDictationRate } from './speech-session.js';
+export type { SpeechSession, SpeechSessionConfig, ComposerSpeech, ComposerSpeechOptions } from './speech-session.js';
 export type { CallSession, CallSessionOptions, CallSessionSnapshot, CallMediaSession, CallMediaAction } from './call-session.js';
 export { createVoiceMode, isVoiceOnFor, readingChatOf } from './voice-mode.js';
 export type { VoiceMode, VoiceModeSnapshot, VoiceScope } from './voice-mode.js';
@@ -191,7 +193,7 @@ export interface AutoReader {
 }
 export { createAutoReader } from './auto-read/reader.js';
 export { createConversationMessages } from './auto-read/conversation.js';
-export type { ConversationMessages, ConversationReply } from './auto-read/conversation.js';
+export type { ConversationMessages, ConversationReply, ConversationArrival } from './auto-read/conversation.js';
 export type { AudioFormat };
 export { createSpeechPreferences } from './preferences.js';
 export type { SpeechPreferences, SpeechPreferencesOptions } from './preferences.js';
