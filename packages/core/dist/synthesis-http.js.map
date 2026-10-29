@@ -1,0 +1,1 @@
+{"version":3,"file":"synthesis-http.js","sourceRoot":"","sources":["../src/synthesis-http.ts"],"names":[],"mappings":"AAAA,6DAA6D;AAC7D,MAAM,CAAC,MAAM,iBAAiB,GAAG;IAC/B,WAAW,EAAE,cAAc;IAC3B,YAAY,EAAE,eAAe;IAC7B,UAAU,EAAE,qBAAqB;IACjC,QAAQ,EAAE,kBAAkB;IAC5B,QAAQ,EAAE,kBAAkB;CACpB,CAAC"}
