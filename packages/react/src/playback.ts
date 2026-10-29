@@ -41,40 +41,77 @@ export function useAutoRead(options: AutoReaderOptions): AutoReader {
   }, [options.routeIdentity]);
   return facade.current;
 }
-export function PlayerControls({ player, className, children }: PlayerControlsProps) {
+export function PlayerControls({
+  player, className, children, slots, hideWhenIdle, disabled: allDisabled, labels,
+}: PlayerControlsProps) {
   const snapshot = useSpeechPlayer(player);
   if (children) return createElement('div', { className }, children(snapshot, player));
   const active = snapshot.messageId !== null;
-  const button = (label: string, onClick: () => void, disabled = false) =>
-    createElement('button', { type: 'button', onClick, disabled, 'aria-label': label }, label);
+  if (hideWhenIdle && snapshot.status === 'idle' && !snapshot.queuedMessages) return null;
+  const button = (action: string, label: string, onClick: () => void, disabled = false, text = label) => {
+    const props = {
+      type: 'button' as const,
+      onClick,
+      disabled: allDisabled || disabled,
+      'aria-label': label,
+      'data-flow-voice-action': action,
+    };
+    return createElement(slots?.Button ?? 'button', props, text);
+  };
   const progress = active
     ? `Message ${snapshot.messageId}, section ${(snapshot.sectionOrdinal ?? 0) + 1}. ${snapshot.queuedMessages} message${snapshot.queuedMessages === 1 ? '' : 's'} queued.`
     : 'No speech queued.';
+  const status = snapshot.status === 'blocked'
+    ? 'Enable audio to hear new messages.'
+    : snapshot.status === 'loading'
+      ? 'Preparing speech…'
+      : snapshot.status === 'paused'
+        ? 'Speech paused'
+        : snapshot.status === 'idle' ? 'No speech queued.' : 'Reading aloud';
   return createElement(
     'div',
-    { className, role: 'group', 'aria-label': 'Speech playback' },
+    {
+      className,
+      role: 'group',
+      'aria-label': 'Speech playback',
+      'data-flow-voice-player': '',
+      'data-flow-voice-state': snapshot.status,
+    },
     createElement(
       'span',
       { role: 'status', 'aria-live': 'polite' },
-      `${snapshot.status}. ${progress}`,
+      active ? `${status} ${progress}` : status,
     ),
     snapshot.status === 'blocked'
-      ? button('Enable audio', () => {
-          void player.unlock();
+      ? button('enable-audio', labels?.enableAudio ?? 'Enable audio', () => {
+          void player.unlock().catch(() => {}); // Player store owns failure feedback.
         })
       : null,
     snapshot.status === 'paused' || snapshot.status === 'error'
       ? button(
-          'Resume speech',
+          'resume',
+          labels?.resume ?? 'Resume speech',
           () => {
-            void player.resume();
+            void player.resume().catch(() => {}); // Player store owns failure feedback.
           },
           !active,
+          labels?.resume ?? 'Resume',
         )
-      : button('Pause speech', () => player.pause(), !active || snapshot.status === 'blocked'),
-    button('Skip section', () => player.skipSection(), !active),
-    button('Skip to end of message', () => player.skipToEnd(), !active),
-    button('Stop speech', () => player.stop(), !active && !snapshot.queuedMessages),
+      : snapshot.status === 'blocked' ? null : button(
+          'pause',
+          labels?.pause ?? 'Pause speech', () => player.pause(), !active, labels?.pause ?? 'Pause',
+        ),
+    button('skip-section', labels?.skipSection ?? 'Skip section', () => player.skipSection(), !active),
+    button(
+      'skip-reply',
+      labels?.skipReply ?? 'Skip to end of message', () => player.skipToEnd(), !active,
+      labels?.skipReply ?? 'Skip reply',
+    ),
+    button(
+      'stop',
+      labels?.stop ?? 'Stop speech', () => player.stop(), !active && !snapshot.queuedMessages,
+      labels?.stop ?? 'Stop',
+    ),
     snapshot.error ? createElement('span', { role: 'alert' }, snapshot.error.message) : null,
   );
 }

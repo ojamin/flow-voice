@@ -1,13 +1,14 @@
 import { useId } from 'react';
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import type { ComponentPropsWithRef, ReactNode } from 'react';
 import type { DictationController, DictationSnapshot } from '@flow-voice/browser';
 import { useDictation } from './dictation.js';
+import type { SpeechControlSlots } from './controls.js';
 
 const sendingIn = (seconds: number) =>
   `Sending in ${seconds} ${seconds === 1 ? 'second' : 'seconds'}`;
 
 export interface MicButtonProps extends Omit<
-  ButtonHTMLAttributes<HTMLButtonElement>,
+  ComponentPropsWithRef<'button'>,
   'children' | 'onClick'
 > {
   controller: DictationController;
@@ -15,6 +16,8 @@ export interface MicButtonProps extends Omit<
   renderStatus?(snapshot: DictationSnapshot): ReactNode;
   showLevel?: boolean;
   statusClassName?: string;
+  slots?: SpeechControlSlots;
+  labels?: { idle?: string; listening?: string; connecting?: string; finalizing?: string };
 }
 
 /** Unstyled native controls: hosts supply their button/focus/disabled visual language. */
@@ -25,9 +28,12 @@ export function MicButton({
   showLevel = false,
   statusClassName,
   disabled,
+  slots,
+  labels,
   ...props
 }: MicButtonProps): ReactNode {
   const snapshot = useDictation(controller);
+  const Button = slots?.Button ?? 'button';
   const id = useId();
   const active = snapshot.status === 'listening' || snapshot.status === 'connecting';
   const busy = snapshot.status === 'connecting' || snapshot.status === 'finalizing';
@@ -42,12 +48,12 @@ export function MicButton({
   const status =
     snapshot.error?.message ??
     (snapshot.status === 'listening'
-      ? 'Listening'
+      ? labels?.listening ?? 'Listening…'
       : snapshot.status === 'connecting'
-        ? 'Connecting microphone'
+        ? labels?.connecting ?? 'Connecting microphone…'
         : snapshot.status === 'finalizing'
-          ? 'Finishing transcription'
-          : 'Microphone off');
+          ? labels?.finalizing ?? 'Finishing…'
+          : labels?.idle ?? '');
   const activate = () => {
     const action =
       snapshot.status === 'connecting'
@@ -59,8 +65,11 @@ export function MicButton({
   };
   return (
     <>
-      <button
+      <Button
         {...props}
+        data-flow-voice-mic=""
+        data-flow-voice-action="mic"
+        data-flow-voice-state={snapshot.status}
         type="button"
         aria-label={props['aria-label'] ?? label}
         aria-pressed={active}
@@ -70,7 +79,7 @@ export function MicButton({
         onClick={activate}
       >
         {typeof children === 'function' ? children(snapshot) : (children ?? label)}
-      </button>
+      </Button>
       <span id={id} role="status" aria-live="polite" className={statusClassName}>
         {renderStatus ? renderStatus(snapshot) : status}
       </span>
@@ -82,9 +91,9 @@ export function MicButton({
           <span role="status" aria-live="polite">
             {sendingIn(Math.ceil(snapshot.countdownMs / 1000))}
           </span>{' '}
-          <button type="button" onClick={() => controller.cancelAutoSend()}>
+          <Button type="button" data-flow-voice-action="cancel-auto-send" disabled={disabled} onClick={() => controller.cancelAutoSend()}>
             Cancel automatic send
-          </button>
+          </Button>
         </span>
       )}
     </>

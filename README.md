@@ -430,6 +430,95 @@ or media player: it keeps running with the screen off or another app in front, a
 host's Media Session metadata and actions appear in the system controls. Seed an auto-reader with
 existing messages, admit only future non-own live messages, and stop it on navigation.
 
+### Restylable speech controls
+
+All controls are accessible native HTML by default, with stable `data-flow-voice-*`
+hooks and no automatic CSS imports. Pass `slots: { Button, Input, Select, Field }`
+to map your design system: button/input/select adapters **must forward all DOM props
+and refs**, including `type`, `disabled`, `aria-*`, event handlers and children.
+`Field` receives `{ id, label, description?, error?, children }`; associate the label
+with `id` and render description/error IDs as `${id}-description` / `${id}-error`.
+Native checkbox/radio semantics and fieldset disabling must survive your adapters.
+`data-flow-voice-action` identifies actions (for example `voice`, `mic`, `resume`,
+`skip-reply`, `save`, `test`) independently of labels, for primitive/icon mapping.
+Import `@flow-voice/react/styles.css` explicitly for a small optional baseline. Its
+CSS variables are `--flow-voice-fg`, `--flow-voice-bg`, `--flow-voice-border`,
+`--flow-voice-accent`, `--flow-voice-error`, and `--flow-voice-gap`. It adds no motion.
+
+#### VoiceSelect
+
+`<VoiceSelect value={voice} onChange={setVoice} choices={choices} />` accepts
+`choices: { voices, status: 'loading' | 'ready' | 'error', retry? }`. The empty
+selection sends `undefined` (provider default); customize `label`/`defaultLabel`.
+Saved unknown IDs remain visible. Only a successful **nonempty** catalog marks
+missing voices disabled and “not available”; empty/error/loading catalogs do not
+discard a saved choice. Loading, empty and retry feedback belongs to the control.
+
+#### VoiceControls
+
+`<VoiceControls mode={mode} player={player} conversation={chatId} voice={voiceProps} />`
+owns Voice on/off, unlock in the click gesture, scope radios and voice selection.
+Its active attribute and `aria-pressed` let hosts color Voice when on. A null
+conversation disables admission. `renderOptions({ triggerProps, content, open,
+onOpenChange })` adapts an existing popover: forward the complete trigger props and
+render the supplied labelled content, preserving focus/keyboard behavior. The
+native default is an inline disclosure with Escape returning focus to the trigger.
+`labels` can override Voice/options/scope wording without rewriting decisions.
+
+#### CallControls
+
+`<CallControls call={call} />` subscribes to the host-owned call, starts inside the
+click gesture, owns pending admission/start rejection cleanup, and renders
+Call/Mute/Unmute/End plus failed-call feedback. End invalidates a pending start's
+UI result. Mounting never starts or disposes a call. `labels` overrides action copy.
+`disabled` blocks new-call/unmute admission, not muting or ending an active call.
+
+#### MicButton
+
+`MicButton` accepts `slots`, forwards native button props/ref and retains its
+level/countdown/status behavior, so hosts need not reimplement state decisions.
+Its small status `labels` override idle/listening/connecting/finalizing copy without
+requiring a raw-state `renderStatus`; the latter remains compatible.
+
+#### PlayerControls
+
+`<PlayerControls player={player} hideWhenIdle />` owns blocked Enable audio,
+Pause/Resume, Skip section, Skip reply, Stop, errors and queue admission; use
+`disabled` and optional action `labels` as needed. Existing raw `children(snapshot,
+player)` remains an advanced compatibility escape hatch; prefer slots.
+
+#### ReadAloudButton
+
+`ReadAloudButton` retains its derived `render({ playing, buttonProps })` seam;
+forward the complete button props when mapping your primitive.
+
+#### SpeechPreferencesForm
+
+`<SpeechPreferencesForm initial={preferences} stt={available.stt} tts={available.tts}
+choices={choices} speakerNames={names} onSave={save} />` owns dictation fields,
+voice and per-speaker voice/speed/mute overrides, dirty/reset/pending/error/saved
+feedback. `save(value)` returns the persisted `SpeechUserPreferences`. Map your
+storage's agent names to `speakerVoices` at the host boundary; `labels` can adapt
+speaker headings/name/add/save/reset wording. Hosts retain availability loading,
+authorization, suggestion sources and persistence.
+
+#### SpeechEndpointForm
+
+`<SpeechEndpointForm kind="tts" initial={endpoint} providers={providers}
+choices={choices} onSave={save} onTest={test} />` owns provider/model/base URL,
+write-only key replacement and key hint, concrete STT/TTS options, clear/reset and
+async feedback. `providers` are host policy, not a library capability table.
+`test(draft)` returns `{ ok: true, voices? }` and never saves; editing invalidates
+test feedback and catalog results. `choices` belongs to `initial` and is not reused
+for a different unsaved provider/model/base URL. `save(write)` returns `SpeechEndpointView | null`;
+clear sends `{ clear: true }`. A successful save clears the typed key. Supply
+`onErrorFields(error)` for server field messages; server validation remains
+authoritative. `labels` overrides save/test/clear/reset copy.
+
+For both forms, keep `initial` stable during local edits; changing it means an
+authoritative reset (and invalidates old async results). Callbacks own authorized
+transport, credential handling and storage; do not pass server adapters to React.
+
 ## Speech markup: only `<tts>`
 
 `displayMarkdown` unwraps valid `<tts>…</tts>` tags while keeping **all text

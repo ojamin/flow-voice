@@ -7,6 +7,10 @@
     "dist"
   ],
   "exports": {
+    "./styles.css": {
+      "flow-voice:source": "./styles.css",
+      "default": "./dist/styles.css"
+    },
     ".": {
       "flow-voice:source": "./src/index.ts",
       "types": "./dist/index.d.ts",
@@ -15,16 +19,19 @@
     }
   },
   "scripts": {
-    "build": "tsc-rs -p tsconfig.build.json",
+    "build": "tsc-rs -p tsconfig.build.json && node -e \"require('node:fs').copyFileSync('styles.css', 'dist/styles.css')\"",
     "typecheck": "tsc-rs --noEmit -p tsconfig.json",
     "lint": "oxlint src",
     "test": "vitest run --passWithNoTests",
     "test:unit": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@flow-voice/core": "workspace:*",
     "@flow-voice/browser": "workspace:*"
   },
   "devDependencies": {
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.1",
     "@types/node": "^22.20.1",
     "@types/react": "^19.0.7",
     "@types/react-dom": "19.2.3",
