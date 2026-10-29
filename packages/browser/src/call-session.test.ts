@@ -56,7 +56,7 @@ it('starts gesture-sensitive APIs synchronously, restarts stops/errors, mutes an
   f.emit('error');
   await vi.waitFor(() => expect(f.dictation.start).toHaveBeenCalledTimes(3));
   f.session.setMuted(true);
-  expect(f.session.getSnapshot()).toEqual({ status: 'active', muted: true });
+  expect(f.session.getSnapshot()).toEqual({ status: 'active', muted: true, failed: false });
   await Promise.resolve();
   expect(f.dictation.start).toHaveBeenCalledTimes(3);
   f.session.setMuted(false);
@@ -65,7 +65,8 @@ it('starts gesture-sensitive APIs synchronously, restarts stops/errors, mutes an
   expect(f.restore).toHaveBeenCalledTimes(1);
   expect(f.onVoiceChange).toHaveBeenCalledTimes(1);
   expect(f.player.setBackgroundAudio).toHaveBeenLastCalledWith(false);
-  expect(f.session.getSnapshot()).toEqual({ status: 'idle', muted: false });
+  expect(f.session.getSnapshot()).toEqual({ status: 'idle', muted: false, failed: false });
+  expect(f.dictation.cancel).toHaveBeenCalled();
   f.session.dispose();
   expect(f.restore).toHaveBeenCalledTimes(1);
 });
@@ -77,6 +78,7 @@ it('ends after three consecutive failures, resetting the count on a successful l
   expect(f.session.getSnapshot().status).toBe('active');
   f.emit('idle');
   await vi.waitFor(() => expect(f.session.getSnapshot().status).toBe('idle'));
+  expect(f.session.getSnapshot().failed).toBe(true);
   expect(f.dictation.start).toHaveBeenCalledTimes(6);
   expect(f.restore).toHaveBeenCalledTimes(1);
   f.session.dispose();
@@ -144,4 +146,53 @@ it('ignores unsupported individual media actions and cleans up on dispose', asyn
   f.session.dispose();
   expect(f.restore).toHaveBeenCalledTimes(1);
   expect(f.player.setBackgroundAudio).toHaveBeenLastCalledWith(false);
+});
+
+it('hangs up into the dictation state from before the call', async () => {
+  const off = fixture();
+  await off.session.start();
+  off.session.end();
+  expect(off.dictation.cancel).toHaveBeenCalledTimes(1);
+  expect(off.dictation.getSnapshot().status).toBe('idle');
+
+  const on = fixture();
+  on.emit('listening');
+  await on.session.start();
+  expect(on.dictation.start).not.toHaveBeenCalled();
+  on.session.setMuted(true);
+  expect(on.dictation.getSnapshot().status).toBe('idle');
+  on.session.end();
+  expect(on.dictation.start).toHaveBeenCalledTimes(1);
+  expect(on.dictation.getSnapshot().status).toBe('listening');
+  expect(on.restore).toHaveBeenCalledTimes(1);
+});
+
+it('follows the chat\'s composer across remounts, waiting while none is mounted', async () => {
+  const f = fixture();
+  await f.session.start();
+  f.session.setDictation(null);
+  f.emit('idle');
+  await Promise.resolve();
+  expect(f.dictation.start).toHaveBeenCalledTimes(1);
+  const next = fixture().dictation;
+  f.session.setDictation(next);
+  await vi.waitFor(() => expect(next.start).toHaveBeenCalledTimes(1));
+  expect(f.session.getSnapshot()).toMatchObject({ status: 'active', failed: false });
+  f.session.end();
+  expect(next.cancel).toHaveBeenCalledTimes(1);
+  expect(f.dictation.cancel).not.toHaveBeenCalled();
+});
+
+it('shows the call in the system controls with the host\'s metadata', async () => {
+  vi.stubGlobal('MediaMetadata', class { constructor(init: MediaMetadataInit) { Object.assign(this, init); } });
+  const media: CallMediaSession = { playbackState: 'none', metadata: null, setActionHandler: vi.fn() };
+  const f = fixture();
+  const session = createCallSession({
+    dictation: f.dictation, player: f.player, mediaSession: media, metadata: { title: 'Voice call' },
+  });
+  await session.start();
+  expect(media.metadata?.title).toBe('Voice call');
+  session.end();
+  expect(media.metadata).toBeNull();
+  vi.unstubAllGlobals();
 });

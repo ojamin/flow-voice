@@ -13,53 +13,74 @@ provider credentials in the browser. MIT licensed; see LICENSE and NOTICE.
 | `@flow-voice/browser` | Microphone capture/worklet, dictation, composer binding, playback and future-message auto-reader |
 | `@flow-voice/react` | Store hooks and unstyled accessible dictation/playback controls |
 
-## Voice mode, calls and continuous dictation
+## Speech in a chat app
 
-`createDictationController({ ...options, stopAfterSend: false })` starts a fresh
-listening session after manual or automatic Send succeeds and the host has cleared
-the draft. The default is **true**, preserving existing stop-after-Send behavior.
-Empty drafts never auto-send; the textarea adapter also rejects empty manual sends.
-Custom composers must check their draft before submitting and call the submission
-binding's `release()` only after successful Send has cleared it (`failed?.()` on
-submission failure). Invalidate before
-replacing/clearing drafts or switching chats: that still stops dictation. Errors
-keep inserted text.
+Everything a chat composer needs is here; the host supplies its editor, its messages, its
+send path and an authenticated transport. A full integration is:
 
-`createVoiceMode({ scope?: 'one-chat' | 'on-screen' })` is an in-memory external
-store, never persisted. Its snapshot is `{ enabled, scope, chatId }`;
-`toggle(currentChatId)` switches Voice on/off, `setScope(scope)` changes scope,
-and `isReadingFor(chatOnScreen)` selects messages for auto-read. The default
-`one-chat` stays bound to the enabling chat even when another chat is shown;
-`on-screen` follows the displayed chat. Switching back to `one-chat` uses the
-last toggle's chat. A new store starts disabled on every reload.
+1. **Settings.** `createSpeechPreferences({ storage?, voiceKey?, dictationKey? })` keeps each
+   scope's (environment, workspace or account) chosen voice and `DictationPreference`
+   (`sendAfterPause`, `silenceMs`, `sendOnWord`, `keyword`, `stopAfterSend`) in localStorage;
+   storage failures and stale data fall back to defaults. `normalizeDictationPreference` and
+   `SILENCE_MS` (core) validate input. React: `useVoicePreference`, `useDictationPreference`.
+2. **Dictate.** Bind the composer with `createTextareaComposerAdapter` or, for a rich editor,
+   `createEditorComposerAdapter(port)`, whose `EditorPort` reads a revisioned draft
+   (`ownerKey`, `text`, `selection`, `revision`) and replaces ranges at that revision. Then
+   `createDictationController({ ..., autoSend: autoSendFor(preference, { onCall }),
+   stopAfterSend: preference.stopAfterSend })`. Read the preference through getters so changes
+   apply mid-session. `autoSendFor` (core) sends on a pause during a call when the user chose
+   neither send. Words the user edits become theirs; only later words are written.
+3. **Voice.** `createVoiceMode({ scope?, onScopeChange? })` holds Voice on/off and its scope:
+   `one-chat` keeps Voice with the chat it was turned on in (turning it on in another chat moves
+   it there); `on-screen` reads whichever chat is shown. Call `setChatOnScreen` when the shown
+   chat changes, `toggle(chat)` from the chat's Voice button, `isOnFor(chat)` for the button,
+   and `readingChat()` for what to read. Voice never persists; persist the scope through
+   `onScopeChange` if wanted. React: `useVoiceMode`, and in render read through the pure
+   `isVoiceOnFor(snapshot, chat)` and `readingChatOf(snapshot)` so the render depends on the
+   snapshot (memoizing compilers otherwise cache a method call's result).
+4. **Read replies.** Feed `createConversationMessages()` with the reading chat's replies
+   (`update(chatId, replies, live)`, each reply with a stable `ordinal`) and pass it to
+   `createAutoReader`/`useAutoRead`. Existing history, pages loaded behind the newest reply and
+   reconnect resyncs are never read; streaming replies read closed `<tts>` sections as they
+   complete. `readAloud(player, message)` and `hasSpeech(markdown)` serve a Read aloud button.
+5. **Ask for speech.** Add `speechPlaybackInstruction(isOnFor(chat))` (core) to every
+   submitted message's agent prompt; each notice replaces the last. `TTS_REPLY_INSTRUCTION` is
+   the one-line version for hosts that add text only while Voice is on.
+6. **Call.** `createCallSession({ dictation, player, onVoiceChange: () => mode.enableFor(chat),
+   metadata: { title: 'Voice call' } })`, then `start()` **inside the click**. See below.
 
-`createCallSession({ dictation, player, onVoiceChange?, mediaSession?, maxFailures? })`
-owns a call, not its dependencies. Subscribe to `{ status: 'idle' | 'active', muted }`.
-Call `start()` **directly inside the user gesture**: it invokes dictation start,
-player unlock and background-audio enable before awaiting. The call restarts capture
-after stops/provider ends/errors, ending after three consecutive start failures
-(configurable via `maxFailures`; successful listening resets the count).
-`setMuted(true)` stops capture without ending; unmute resumes. `end()` and
-`dispose()` stop capture, disable background audio, clear Media Session handlers,
-and restore Voice. Dispose also unsubscribes; it does not dispose the host's player
-or controller. End the call before navigation/draft invalidation if it must not restart.
+Server side, `createVoiceCatalog({ ttlMs })` caches each endpoint's voices for synthesis while
+`refresh` serves a settings screen; `resolveVoice` picks the voice to use.
 
-Voice remains host state: `onVoiceChange` enables it and returns a plain restore
-callback, for example `() => { const previous = voiceOn; setVoice(true); return () =>
-setVoice(previous); }`. Hosts configure auto-send on the controller: enable sending
-after pause, or use `{ enabled: true, silenceMs: 1000, keyword: 'send', afterPause: false }`
-for keyword-only sending when that is the user's only Send option. Do not attach a
-half-duplex playback gate during calls: calls intentionally capture and play together.
+### Calls
 
-Media Session defaults to `navigator.mediaSession` (`null` opts out): play/pause
-resume/pause the player, nexttrack skips a section, hangup ends, and togglemicrophone
-toggles mute. Unsupported actions are ignored individually; playback and microphone
-state are updated while active.
+A call keeps the microphone open and sends on its own: capture restarts after stops, provider
+ends and errors, and the call ends after three consecutive start failures (`maxFailures`;
+listening resets the count), with snapshot `failed: true`. Snapshot:
+`{ status: 'idle' | 'active', muted, failed }` (React: `useCallSession`). `setMuted(true)`
+stops capture without ending. `start()` unlocks audio, enables background playback (one
+continuously playing media element, so a phone keeps the call with the screen off) and starts
+dictation before awaiting, which browsers require of a user gesture.
 
-`@flow-voice/core` exports `TTS_REPLY_INSTRUCTION`, a short per-message instruction:
-“Voice is on: wrap the parts of your reply meant to be spoken in `<tts>…</tts>` tags.”
-`@flow-voice/react` exports `useCallSession(session)` and `useVoiceMode(mode)`, thin
-`useSyncExternalStore` hooks for host-owned instances, with no new UI.
+**Hanging up restores what was there before the call**: dictation keeps listening if it was on
+when the call started and stops otherwise, and `onVoiceChange`'s returned callback (for example
+`mode.enableFor(chat)`) puts Voice back. Background audio and media controls are cleared.
+
+When a composer remounts (a draft becoming a thread, navigation back to the chat), pass its
+controller with `setDictation(controller)`, or `null` when none is mounted: the call then waits
+without counting failures. Media Session (`navigator.mediaSession` by default, `null` opts out):
+play/pause resume/pause the player, nexttrack skips a section, hangup ends, togglemicrophone
+mutes; `setMicrophoneActive` and `metadata` are set while active. Do not attach a half-duplex
+playback gate during calls: calls capture and play together, relying on echo cancellation.
+
+### Continuous dictation
+
+`stopAfterSend: false` starts a fresh session after manual or automatic Send succeeds and the
+host has cleared the draft (the default, true, stops). Empty drafts never auto-send; custom
+composers must check their draft before submitting and call the submission binding's
+`release()` only after a successful Send has cleared it (`failed?.()` on failure). Invalidate
+before replacing or clearing drafts or switching chats: that still stops dictation. Errors keep
+inserted text.
 
 ## Providers and capabilities
 
@@ -146,7 +167,7 @@ MOSS-compat speaks the author's speech gateway protocol: WebSocket
 TTS supports speed 1 and at most 2000 UTF-16 code units per request. Split longer
 prose at section boundaries. See NOTICE for provenance.
 
-## Install prebuilt v0.4.0
+## Install prebuilt v0.5.0
 
 Use Node >=22 and pnpm 12.3.4. Tagged releases contain committed ESM, declarations
 and the worklet: no registry publication or install-time build is required.
@@ -154,10 +175,10 @@ and the worklet: no registry publication or install-time build is required.
 ```json
 {
   "dependencies": {
-    "@flow-voice/core": "github:ojamin/flow-voice#v0.4.0&path:/packages/core",
-    "@flow-voice/browser": "github:ojamin/flow-voice#v0.4.0&path:/packages/browser",
-    "@flow-voice/server": "github:ojamin/flow-voice#v0.4.0&path:/packages/server",
-    "@flow-voice/react": "github:ojamin/flow-voice#v0.4.0&path:/packages/react",
+    "@flow-voice/core": "github:ojamin/flow-voice#v0.5.0&path:/packages/core",
+    "@flow-voice/browser": "github:ojamin/flow-voice#v0.5.0&path:/packages/browser",
+    "@flow-voice/server": "github:ojamin/flow-voice#v0.5.0&path:/packages/server",
+    "@flow-voice/react": "github:ojamin/flow-voice#v0.5.0&path:/packages/react",
     "react": "^19.0.0"
   }
 }
@@ -311,7 +332,7 @@ Optional settings are `FLOW_VOICE_SMOKE_BASE_URL`, `FLOW_VOICE_SMOKE_TTS_MODEL`,
 From a clean, verified source commit:
 
 ```sh
-node scripts/release.mjs ../flow-voice-v0.4.0-tree
+node scripts/release.mjs ../flow-voice-v0.5.0-tree
 ```
 
 The script cleans/builds all packages and writes a new external directory, refusing
@@ -321,8 +342,8 @@ devDependencies and source exports are omitted. Repeated builds using the same
 source/toolchain produce identical trees with no generated timestamps.
 
 Create a release commit whose parent is the source commit and whose tree is exactly
-that output, with subject `Release v0.4.0`. Tag it with annotated tag `v0.4.0` and
-message `flow-voice v0.4.0`. Keep main on the source commit and the release branch
+that output, with subject `Release v0.5.0`. Tag it with annotated tag `v0.5.0` and
+message `flow-voice v0.5.0`. Keep main on the source commit and the release branch
 on the prebuilt commit. Before publishing, install all four packages into a fresh
 consumer with default pnpm supply-chain policy, check dist imports and load the
 worklet in an AudioWorklet context. Never move a published tag; use a new version.

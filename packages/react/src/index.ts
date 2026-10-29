@@ -3,7 +3,7 @@ import type { ButtonHTMLAttributes, ReactNode } from 'react';
 /** Hooks subscribe to host-owned stores; controller/player lifecycle is owned by the host. */
 export { useSpeechPlayer, useAutoRead, PlayerControls, ReadAloudButton } from './playback.js';
 export { useDictation } from './dictation.js';
-export { useCallSession, useVoiceMode } from './voice.js';
+export { useCallSession, useDictationPreference, useVoiceMode, useVoicePreference } from './voice.js';
 export { MicButton, type MicButtonProps } from './MicButton.js';
 export interface PlayerControlsProps {
   player: SpeechPlayer;

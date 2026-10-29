@@ -3,41 +3,55 @@ import type { DictationController, ExternalStore, SpeechPlayer } from './index.j
 export interface CallSessionSnapshot {
   status: 'idle' | 'active';
   muted: boolean;
+  /** The last call ended because the microphone or speech service kept failing. */
+  failed: boolean;
 }
 export type CallMediaAction = 'play' | 'pause' | 'nexttrack' | 'hangup' | 'togglemicrophone';
 export interface CallMediaSession {
   playbackState: MediaSessionPlaybackState;
+  metadata?: MediaMetadata | null;
   setActionHandler(action: MediaSessionAction | CallMediaAction, handler: (() => void) | null): void;
   setMicrophoneActive?(active: boolean): void;
 }
 export interface CallSessionOptions {
-  dictation: DictationController;
+  /** The chat's dictation; null while no composer for the chat is mounted (see setDictation). */
+  dictation: DictationController | null;
   player: SpeechPlayer;
   /** Enable Voice and return a callback restoring the host's previous Voice state. */
   onVoiceChange?(): () => void;
   /** Defaults to navigator.mediaSession; null disables integration. */
   mediaSession?: CallMediaSession | null;
+  /** What the system's media controls show for the call, for example `{ title: 'Voice call' }`. */
+  metadata?: MediaMetadataInit;
   maxFailures?: number;
 }
 export interface CallSession extends ExternalStore<CallSessionSnapshot> {
   /** Invoke inside the user gesture, not from an effect. */
   start(): Promise<void>;
   setMuted(muted: boolean): void;
+  /** Follow the composer that now owns the chat (after a remount), or null while none does.
+   * The call waits without counting failures until a controller is bound again. */
+  setDictation(dictation: DictationController | null): void;
+  /** Hang up: the microphone and Voice return to how they were before the call. */
   end(): void;
   dispose(): void;
 }
 
 export function createCallSession(options: CallSessionOptions): CallSession {
-  const { dictation, player } = options;
+  const { player } = options;
   const media: CallMediaSession | null | undefined = options.mediaSession === undefined
     ? globalThis.navigator?.mediaSession : options.mediaSession;
-  let snapshot: CallSessionSnapshot = { status: 'idle', muted: false };
+  let dictation = options.dictation;
+  let snapshot: CallSessionSnapshot = { status: 'idle', muted: false, failed: false };
   let disposed = false;
   let generation = 0;
   let starting = false;
   let reachedListening = false;
   let failures = 0;
   let restoreVoice: (() => void) | undefined;
+  /** Dictation was on when the call started, so hanging up leaves it on. */
+  let restoreDictation = false;
+  let setMetadata = false;
   const listeners = new Set<() => void>();
   const publish = (patch: Partial<CallSessionSnapshot>) => {
     snapshot = { ...snapshot, ...patch };
@@ -65,36 +79,57 @@ export function createCallSession(options: CallSessionOptions): CallSession {
     }
   };
   const shouldListen = () => snapshot.status === 'active' && !snapshot.muted && !disposed;
-  const stopped = () => ['idle', 'error'].includes(dictation.getSnapshot().status);
+  const stopped = () => !dictation || ['idle', 'error'].includes(dictation.getSnapshot().status);
   async function listen() {
-    if (!shouldListen() || starting || !stopped()) return;
+    const target = dictation;
+    if (!target || !shouldListen() || starting || !stopped()) return;
     starting = true;
     reachedListening = false;
     const attempt = generation;
     try {
-      await dictation.start();
-      if (attempt !== generation || !shouldListen()) return;
-      if (reachedListening || dictation.getSnapshot().status === 'listening') failures = 0;
+      await target.start();
+      if (attempt !== generation || target !== dictation || !shouldListen()) return;
+      if (reachedListening || target.getSnapshot().status === 'listening') failures = 0;
       else failures++;
     } catch {
-      if (attempt === generation && shouldListen()) failures++;
+      if (attempt === generation && target === dictation && shouldListen()) failures++;
     } finally {
       starting = false;
-      if (shouldListen()) {
-        if (failures >= (options.maxFailures ?? 3)) session.end();
+      if (shouldListen() && dictation) {
+        if (failures >= (options.maxFailures ?? 3)) finish(true);
         else if (stopped()) queueMicrotask(() => { void listen(); });
       }
     }
   }
-  const unsubscribeDictation = dictation.subscribe(() => {
-    if (dictation.getSnapshot().status === 'listening') {
+  const onDictation = () => {
+    if (dictation?.getSnapshot().status === 'listening') {
       reachedListening = true;
       failures = 0;
     }
     if (shouldListen() && !starting && stopped())
       queueMicrotask(() => { if (stopped()) void listen(); });
-  });
+  };
+  let unsubscribeDictation = dictation?.subscribe(onDictation);
   const unsubscribePlayer = player.subscribe(playback);
+  function finish(failed: boolean) {
+    if (snapshot.status === 'idle') return;
+    generation++;
+    publish({ status: 'idle', muted: false, failed });
+    if (restoreDictation && !failed) {
+      if (dictation && stopped()) void dictation.start().catch(() => {});
+    } else void dictation?.cancel();
+    void player.setBackgroundAudio(false);
+    actions(false);
+    microphone();
+    if (media) {
+      media.playbackState = 'none';
+      if (setMetadata) media.metadata = null;
+    }
+    setMetadata = false;
+    const restore = restoreVoice;
+    restoreVoice = undefined;
+    restore?.();
+  }
   const session: CallSession = {
     getSnapshot: () => snapshot,
     subscribe(listener) {
@@ -105,12 +140,18 @@ export function createCallSession(options: CallSessionOptions): CallSession {
       if (disposed || snapshot.status === 'active') return;
       generation++;
       failures = 0;
-      publish({ status: 'active', muted: false });
+      const status = dictation?.getSnapshot().status;
+      restoreDictation = status === 'connecting' || status === 'listening';
+      publish({ status: 'active', muted: false, failed: false });
       // All three calls happen in the gesture, before the first await.
       const capture = listen();
       const unlock = player.unlock();
       const background = player.setBackgroundAudio(true);
       restoreVoice = options.onVoiceChange?.();
+      if (media && options.metadata && typeof MediaMetadata !== 'undefined') {
+        media.metadata = new MediaMetadata(options.metadata);
+        setMetadata = true;
+      }
       actions(true);
       microphone();
       playback();
@@ -121,26 +162,21 @@ export function createCallSession(options: CallSessionOptions): CallSession {
       generation++;
       publish({ muted });
       microphone();
-      if (muted) void dictation.cancel();
+      if (muted) void dictation?.cancel();
       else void listen();
     },
-    end() {
-      if (snapshot.status === 'idle') return;
-      generation++;
-      publish({ status: 'idle', muted: false });
-      void dictation.cancel();
-      void player.setBackgroundAudio(false);
-      actions(false);
-      microphone();
-      if (media) media.playbackState = 'none';
-      const restore = restoreVoice;
-      restoreVoice = undefined;
-      restore?.();
+    setDictation(next) {
+      if (next === dictation) return;
+      unsubscribeDictation?.();
+      dictation = next;
+      unsubscribeDictation = next?.subscribe(onDictation);
+      if (shouldListen()) void listen();
     },
+    end: () => finish(false),
     dispose() {
-      session.end();
+      finish(false);
       disposed = true;
-      unsubscribeDictation();
+      unsubscribeDictation?.();
       unsubscribePlayer();
       listeners.clear();
     },

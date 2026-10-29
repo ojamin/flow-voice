@@ -11,7 +11,7 @@ import type {
 import type { PlaybackGate } from './player/gate.js';
 export { createCallSession } from './call-session.js';
 export type { CallSession, CallSessionOptions, CallSessionSnapshot, CallMediaSession, CallMediaAction } from './call-session.js';
-export { createVoiceMode } from './voice-mode.js';
+export { createVoiceMode, isVoiceOnFor, readingChatOf } from './voice-mode.js';
 export type { VoiceMode, VoiceModeSnapshot, VoiceScope } from './voice-mode.js';
 export interface ExternalStore<T> {
   subscribe(listener: () => void): () => void;
@@ -107,6 +107,8 @@ export interface DictationControllerOptions {
 }
 export { createDictationController } from './dictation/controller.js';
 export { createTextareaComposerAdapter } from './dictation/textarea.js';
+export { createEditorComposerAdapter } from './dictation/editor.js';
+export type { EditorComposerAdapter, EditorDraft, EditorPort } from './dictation/editor.js';
 export type SynthesisFetcher = (
   request: SynthesisRequest & { signal: AbortSignal },
 ) => Promise<SynthesisAudio>;
@@ -188,4 +190,9 @@ export interface AutoReader {
   dispose(): void;
 }
 export { createAutoReader } from './auto-read/reader.js';
+export { createConversationMessages } from './auto-read/conversation.js';
+export type { ConversationMessages, ConversationReply } from './auto-read/conversation.js';
 export type { AudioFormat };
+export { createSpeechPreferences } from './preferences.js';
+export type { SpeechPreferences, SpeechPreferencesOptions } from './preferences.js';
+export { hasSpeech, readAloud } from './read-aloud.js';
