@@ -221,7 +221,7 @@ MOSS-compat speaks the author's speech gateway protocol: WebSocket
 TTS supports speed 1 and at most 2000 UTF-16 code units per request. Split longer
 prose at section boundaries. See NOTICE for provenance.
 
-## Install prebuilt v0.5.1
+## Install prebuilt v0.6.0
 
 Use Node >=22 and pnpm 12.3.4. Tagged releases contain committed ESM, declarations
 and the worklet: no registry publication or install-time build is required.
@@ -229,10 +229,10 @@ and the worklet: no registry publication or install-time build is required.
 ```json
 {
   "dependencies": {
-    "@flow-voice/core": "github:ojamin/flow-voice#v0.5.1&path:/packages/core",
-    "@flow-voice/browser": "github:ojamin/flow-voice#v0.5.1&path:/packages/browser",
-    "@flow-voice/server": "github:ojamin/flow-voice#v0.5.1&path:/packages/server",
-    "@flow-voice/react": "github:ojamin/flow-voice#v0.5.1&path:/packages/react",
+    "@flow-voice/core": "github:ojamin/flow-voice#v0.6.0&path:/packages/core",
+    "@flow-voice/browser": "github:ojamin/flow-voice#v0.6.0&path:/packages/browser",
+    "@flow-voice/server": "github:ojamin/flow-voice#v0.6.0&path:/packages/server",
+    "@flow-voice/react": "github:ojamin/flow-voice#v0.6.0&path:/packages/react",
     "react": "^19.0.0"
   }
 }
@@ -386,7 +386,7 @@ Optional settings are `FLOW_VOICE_SMOKE_BASE_URL`, `FLOW_VOICE_SMOKE_TTS_MODEL`,
 From a clean, verified source commit:
 
 ```sh
-node scripts/release.mjs ../flow-voice-v0.5.1-tree
+node scripts/release.mjs ../flow-voice-v0.6.0-tree
 ```
 
 The script cleans/builds all packages and writes a new external directory, refusing
@@ -396,8 +396,8 @@ devDependencies and source exports are omitted. Repeated builds using the same
 source/toolchain produce identical trees with no generated timestamps.
 
 Create a release commit whose parent is the source commit and whose tree is exactly
-that output, with subject `Release v0.5.1`. Tag it with annotated tag `v0.5.1` and
-message `flow-voice v0.5.1`. Keep main on the source commit and the release branch
+that output, with subject `Release v0.6.0`. Tag it with annotated tag `v0.6.0` and
+message `flow-voice v0.6.0`. Keep main on the source commit and the release branch
 on the prebuilt commit. Before publishing, install all four packages into a fresh
 consumer with default pnpm supply-chain policy, check dist imports and load the
 worklet in an AudioWorklet context. Never move a published tag; use a new version.
