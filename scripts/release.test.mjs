@@ -10,7 +10,7 @@ test('release manifests contain only built exports and exact Git sibling peers',
   for (const name of packages) {
     const source = JSON.parse(readFileSync(new URL(`packages/${name}/package.json`, root), 'utf8'));
     const manifest = releaseManifest(source);
-    assert.equal(manifest.version, '0.7.0');
+    assert.equal(manifest.version, '0.7.1');
     assert.equal(manifest.license, 'MIT');
     assert.equal(manifest.scripts, undefined);
     assert.equal(manifest.devDependencies, undefined);
@@ -34,7 +34,7 @@ test('release manifests contain only built exports and exact Git sibling peers',
 test('release refuses unexpected versions, unknown siblings, and existing output', () => {
   assert.throws(() => releaseManifest({ name: 'bad', version: '9.9.9' }), /version/);
   assert.throws(() => releaseManifest({
-    version: '0.7.0', exports: {}, dependencies: { '@flow-voice/unknown': 'workspace:*' },
+    version: '0.7.1', exports: {}, dependencies: { '@flow-voice/unknown': 'workspace:*' },
   }), /Unknown sibling/);
   const output = mkdtempSync(join(tmpdir(), 'flow-voice-release-test-'));
   try {
