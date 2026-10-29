@@ -11,6 +11,7 @@ import {
 } from '../transport.js';
 import { websocketStt } from './session.js';
 import { restTranscription } from './openai-rest.js';
+import { requestedSynthesis } from '../audio-stream.js';
 
 const pcm: AudioFormat = { kind: 'pcm', encoding: 'pcm_s16le', sampleRate: 24000, channels: 1 };
 const formats: AudioFormat[] = [
@@ -180,7 +181,7 @@ export function createOpenAIAdapters(config: ProviderEndpointConfig): {
         }
         return builtInVoices();
       },
-      async *synthesize(request) {
+      synthesize: requestedSynthesis(async function* (request) {
         if (!customEndpoint && request.voice && !modelVoices.includes(request.voice))
           throw speechError('invalid_message');
         if (
@@ -215,7 +216,7 @@ export function createOpenAIAdapters(config: ProviderEndpointConfig): {
           }),
         });
         yield* responseAudio(response);
-      },
+      }),
     },
   };
 }

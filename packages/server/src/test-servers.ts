@@ -41,3 +41,20 @@ export function deferred<T = void>() {
   });
   return { promise, resolve };
 }
+import type { TtsAdapter } from './index.js';
+
+/** Drain the public response-bearing API while retaining chunk-level protocol assertions. */
+export async function* synthesizeChunks(adapter: TtsAdapter, request: Parameters<TtsAdapter['synthesize']>[0]) {
+  const audio = await adapter.synthesize(request);
+  const reader = audio.stream.getReader();
+  try {
+    while (true) {
+      const result = await reader.read();
+      if (result.done) return;
+      yield { audio: result.value };
+    }
+  } finally {
+    try { await reader.cancel(); } catch { /* Preserve stream failure. */ }
+    reader.releaseLock();
+  }
+}

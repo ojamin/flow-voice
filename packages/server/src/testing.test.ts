@@ -1,3 +1,4 @@
+import { synthesizeChunks } from './test-servers.js';
 import { expect, it } from 'vitest';
 import { createFakeAdapters } from './testing.js';
 it('offers a deterministic first-party network-free adapter pair and abort cleanup', async () => {
@@ -18,7 +19,7 @@ it('offers a deterministic first-party network-free adapter pair and abort clean
   ]);
   expect(() => session.write(new Uint8Array([0, 0]))).toThrow();
   const chunks = [];
-  for await (const chunk of tts.synthesize({
+  for await (const chunk of synthesizeChunks(tts, {
     text: 'hello',
     format: tts.capabilities.formats[0]!,
     signal: abort.signal,

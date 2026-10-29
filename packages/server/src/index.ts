@@ -7,6 +7,7 @@ import type {
   SttClientMessage,
   SttServerMessage,
   SynthesisRequest,
+  SynthesisAudio,
   Voice,
 } from '@flow-voice/core';
 export type { SpeechErrorCode, SpeechError } from '@flow-voice/core';
@@ -41,9 +42,11 @@ export interface AudioChunk {
 export interface TtsAdapter {
   readonly id: string;
   readonly capabilities: TtsCapabilities;
+  /** Return actual output metadata. Own backpressure, safe stream errors and upstream
+   * cleanup on signal abort or stream cancellation, including before the first pull. */
   synthesize(
-    request: SynthesisRequest & { format: AudioFormat; signal: AbortSignal },
-  ): AsyncIterable<AudioChunk>;
+    request: SynthesisRequest & { format?: AudioFormat; signal: AbortSignal },
+  ): Promise<SynthesisAudio>;
   listVoices?(signal: AbortSignal): Promise<readonly Voice[]>;
 }
 export interface SessionLimits {
@@ -68,7 +71,7 @@ export interface LiveTranscriptionSession {
 }
 export interface SynthesizeOptions extends SynthesisRequest {
   adapter: TtsAdapter;
-  format: AudioFormat;
+  format?: AudioFormat;
   signal: AbortSignal;
   maxTextChars?: number;
 }
@@ -81,6 +84,8 @@ export { synthesize, listVoices, resolveVoice } from './synthesis.js';
 export { createVoiceCatalog } from './catalog.js';
 export type { VoiceCatalog } from './catalog.js';
 export { createAdapters } from './registry.js';
+export { prepareSpeechEndpoint } from './prepare-endpoint.js';
+export type { PrepareSpeechEndpointOptions } from './prepare-endpoint.js';
 export { normalizeSpeechError } from './errors.js';
 export { synthesisResponse } from './synthesis-http.js';
 export { checkSpeechEndpoint } from './check-endpoint.js';

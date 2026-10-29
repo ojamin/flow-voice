@@ -1,4 +1,5 @@
 import { pcmInputSchema } from '@flow-voice/core';
+import { requestedSynthesis } from '../audio-stream.js';
 import type { ProviderEndpointConfig } from '@flow-voice/core';
 import type { SttAdapter, TtsAdapter } from '../index.js';
 
@@ -102,7 +103,7 @@ export function createDeepgramAdapters(config: ProviderEndpointConfig): {
         { kind: 'encoded', mimeType: 'audio/ogg;codecs=opus' },
       ],
     },
-    async *synthesize(request) {
+    synthesize: requestedSynthesis(async function* (request) {
       if (request.signal.aborted) throw providerError('cancelled');
       const url = providerUrl(config, '/v1/speak', false);
       url.searchParams.set('model', request.voice ?? defaultVoice);
@@ -141,7 +142,7 @@ export function createDeepgramAdapters(config: ProviderEndpointConfig): {
         link.controller.abort();
         link.dispose();
       }
-    },
+    }),
     async listVoices(signal) {
       if (signal.aborted) throw providerError('cancelled');
       try {

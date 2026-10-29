@@ -1,4 +1,4 @@
-import { SYNTHESIS_HEADERS } from '@flow-voice/core';
+import { audioFormatFromHeaders, SYNTHESIS_HEADERS } from '@flow-voice/core';
 import type { SynthesisAudio } from '@flow-voice/core';
 import { normalizeSpeechError } from './errors.js';
 
@@ -16,13 +16,20 @@ export async function synthesisResponse(audio: SynthesisAudio): Promise<{
     throw normalizeSpeechError(error);
   }
   const headers: Record<string, string> = {
-    [SYNTHESIS_HEADERS.contentType]: audio.format.kind === 'pcm' ? 'audio/pcm' : audio.mimeType,
+    [SYNTHESIS_HEADERS.contentType]: audio.format.kind === 'pcm' ? 'audio/pcm' : audio.format.mimeType,
     [SYNTHESIS_HEADERS.cacheControl]: 'no-store',
   };
   if (audio.format.kind === 'pcm') {
     headers[SYNTHESIS_HEADERS.sampleRate] = String(audio.format.sampleRate);
     headers[SYNTHESIS_HEADERS.channels] = String(audio.format.channels);
     headers[SYNTHESIS_HEADERS.encoding] = audio.format.encoding;
+  }
+  try {
+    audioFormatFromHeaders(new Headers(headers));
+  } catch (error) {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+    throw normalizeSpeechError(error);
   }
   let cancelled = false;
   const body = new ReadableStream<Uint8Array>({

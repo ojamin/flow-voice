@@ -2,6 +2,7 @@ import type WebSocket from 'ws';
 import type { ProviderEndpointConfig } from '@flow-voice/core';
 import type { AudioChunk, SttAdapter, SttEvent, TtsAdapter } from '../index.js';
 import { normalizeSpeechError } from '../errors.js';
+import { requestedSynthesis } from '../audio-stream.js';
 
 import {
   nativeError,
@@ -263,7 +264,7 @@ export function createElevenLabsAdapters(config: ProviderEndpointConfig): {
       formats: [...pcmFormats(ttsRates), { kind: 'encoded', mimeType: 'audio/mpeg' }],
       voices: 'list',
     },
-    async *synthesize(request): AsyncIterable<AudioChunk> {
+    synthesize: requestedSynthesis(async function* (request): AsyncIterable<AudioChunk> {
       let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
       try {
         const voice = requireVoice(config, request.voice);
@@ -315,7 +316,7 @@ export function createElevenLabsAdapters(config: ProviderEndpointConfig): {
           reader.releaseLock();
         }
       }
-    },
+    }),
     async listVoices(signal) {
       try {
         const response = await nativeFetch(

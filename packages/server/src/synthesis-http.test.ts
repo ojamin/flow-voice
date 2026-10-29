@@ -2,6 +2,16 @@ import { expect, it, vi } from 'vitest';
 import type { SynthesisAudio } from '@flow-voice/core';
 import { synthesisResponse } from './index.js';
 
+it('rejects invalid metadata and cancels without exposing headers or transport errors', async () => {
+  const cancel = vi.fn(() => { throw new Error('transport already closed'); });
+  const stream = new ReadableStream<Uint8Array>({ start(c) { c.enqueue(new Uint8Array(2)); }, cancel }, { highWaterMark: 0 });
+  await expect(synthesisResponse({ stream, mimeType: 'audio/pcm',
+    format: { kind: 'pcm', encoding: 'pcm_s16le', sampleRate: 0, channels: 1 } }))
+    .rejects.toMatchObject({ code: 'invalid_message' });
+  expect(cancel).toHaveBeenCalledOnce();
+  expect(stream.locked).toBe(false);
+});
+
 function audio(stream: ReadableStream<Uint8Array>): SynthesisAudio {
   return { stream, mimeType: 'audio/pcm', format: { kind: 'pcm', encoding: 'pcm_s16le', sampleRate: 24000, channels: 1 } };
 }

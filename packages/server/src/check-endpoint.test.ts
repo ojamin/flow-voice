@@ -154,9 +154,9 @@ it('skips absent catalogs, rejects empty audio and sanitizes lazy failures', asy
   const list = vi.spyOn(tts, 'listVoices');
   await expect(checkSpeechEndpoint({ tts, signal: signal() })).resolves.toEqual({ tts: { ok: true, voices: [] } });
   expect(list).not.toHaveBeenCalled();
-  tts.synthesize = async function* () { yield* []; };
+  tts.synthesize = async function () { return { format: original.capabilities.formats[0]!, mimeType: 'audio/pcm', stream: new ReadableStream({ start(c) { c.close(); } }) }; };
   await expect(checkSpeechEndpoint({ tts, signal: signal() })).rejects.toMatchObject({ code: 'provider_error' });
-  tts.synthesize = async function* () { yield await Promise.reject(new Error(secret)); };
+  tts.synthesize = async function () { return { format: original.capabilities.formats[0]!, mimeType: 'audio/pcm', stream: new ReadableStream({ start(c) { c.error(new Error(secret)); } }) }; };
   await expect(checkSpeechEndpoint({ tts, signal: signal() })).rejects.toMatchObject({ code: 'provider_error', message: 'Speech provider failed.' });
 });
 

@@ -1,3 +1,4 @@
+import { synthesizeChunks } from '../test-servers.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AudioFormat, SttServerMessage } from '@flow-voice/core';
 import {
@@ -34,7 +35,7 @@ describe('native provider protocols on loopback servers', () => {
         : ['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer', 'verse', 'marin', 'cedar']);
       expect(voices.filter((voice) => voice.isDefault).map((voice) => voice.id)).toEqual(['alloy']);
       expect(adapter.capabilities.voices).toBe('fixed');
-      const source = adapter.synthesize({ text: 'hello', voice: 'marin', format: pcm24, signal: new AbortController().signal });
+      const source = synthesizeChunks(adapter, { text: 'hello', voice: 'marin', format: pcm24, signal: new AbortController().signal });
       if (legacy) await expect(source[Symbol.asyncIterator]().next()).rejects.toMatchObject({ code: 'invalid_message' });
       else for await (const _chunk of source) { /* drain */ }
     }
@@ -65,7 +66,7 @@ describe('native provider protocols on loopback servers', () => {
     const voices = await adapter.listVoices!(new AbortController().signal);
     expect(voices).toHaveLength(9);
     expect(voices.find((voice) => voice.id === 'alloy')?.isDefault).toBe(true);
-    for await (const _chunk of adapter.synthesize({ text: 'hello', voice: 'af_bella', format: pcm24, signal: new AbortController().signal })) { /* drain */ }
+    for await (const _chunk of synthesizeChunks(adapter, { text: 'hello', voice: 'af_bella', format: pcm24, signal: new AbortController().signal })) { /* drain */ }
     expect(String(fetch.mock.calls[1]![0])).toBe('https://speech.example/prefix/v1/audio/speech');
     expect(JSON.parse(fetch.mock.calls[1]![1]!.body as string).voice).toBe('af_bella');
   });

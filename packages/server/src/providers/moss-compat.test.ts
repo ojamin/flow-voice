@@ -1,5 +1,7 @@
+import { synthesizeChunks } from '../test-servers.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { createMossCompatAdapters } from './moss-compat.js';
+import { checkSpeechEndpoint, synthesize, synthesisResponse } from '../index.js';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -35,16 +37,16 @@ function audioHeaders(sampleRate = 48000, channels = 2) {
   };
 }
 
-it.each(models)('discovers only $model voices and advertises its stream format', async ({ model, sampleRate, channels, voices }) => {
+it.each(models)('discovers only $model voices and returns its actual stream format', async ({ model, sampleRate, channels, voices }) => {
   const fetch = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(Response.json(health))
     .mockResolvedValueOnce(Response.json(health))
     .mockResolvedValueOnce(new Response(new Uint8Array(channels * 2), { headers: audioHeaders(sampleRate, channels) }));
   const tts = adapter(model);
   expect(await tts.listVoices!(new AbortController().signal)).toEqual(voices);
-  expect(tts.capabilities.formats).toEqual([{ kind: 'pcm', encoding: 'pcm_s16le', sampleRate, channels }]);
+  expect(tts.capabilities.formats).toEqual([]);
   const chunks = [];
-  for await (const chunk of tts.synthesize({ text: 'Hi.', format: tts.capabilities.formats[0]!, signal: new AbortController().signal })) chunks.push(chunk);
+  for await (const chunk of synthesizeChunks(tts, { text: 'Hi.', signal: new AbortController().signal })) chunks.push(chunk);
   expect(chunks).toHaveLength(1);
   expect(JSON.parse(fetch.mock.calls[2]![1]!.body as string)).toMatchObject({ model, voice: voices.find((voice) => 'isDefault' in voice)?.id });
 });
@@ -83,7 +85,7 @@ it.each([
   const body = new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array(4)); }, cancel });
   vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(body, { headers: { ...audioHeaders(), ...override } }));
   const tts = adapter('');
-  const source = tts.synthesize({ text: 'Hi.', voice: 'alice', format: tts.capabilities.formats[0]!, signal: new AbortController().signal });
+  const source = synthesizeChunks(tts, { text: 'Hi.', voice: 'alice', signal: new AbortController().signal });
   await expect(source[Symbol.asyncIterator]().next()).rejects.toMatchObject({ code: 'provider_error' });
   expect(cancel).toHaveBeenCalledOnce();
 });
@@ -91,5 +93,56 @@ it.each([
 it('rejects unconfirmed stream formats', async () => {
   vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(new Uint8Array(4), { headers: { 'content-type': 'audio/pcm' } }));
   const tts = adapter('');
-  await expect(tts.synthesize({ text: 'Hi.', voice: 'alice', format: tts.capabilities.formats[0]!, signal: new AbortController().signal })[Symbol.asyncIterator]().next()).rejects.toMatchObject({ code: 'provider_error' });
+  await expect(synthesizeChunks(tts, { text: 'Hi.', voice: 'alice', signal: new AbortController().signal })[Symbol.asyncIterator]().next()).rejects.toMatchObject({ code: 'provider_error' });
+});
+
+it.each([{ sampleRate: 22050, channels: 1 }, { sampleRate: 48000, channels: 2 }])('unknown models stream actual $sampleRate Hz / $channels channels across split frames', async ({ sampleRate, channels }) => {
+  const chunks = [new Uint8Array([1]), new Uint8Array([2, 3]), new Uint8Array([4])];
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(new ReadableStream({ start(c) {
+    chunks.forEach((chunk) => c.enqueue(chunk)); c.close();
+  } }), { headers: audioHeaders(sampleRate, channels) }));
+  const audio = await synthesize({ adapter: adapter('future-unknown-model'), text: 'Hi', voice: 'alice',
+    format: { kind: 'pcm', encoding: 'pcm_s16le', sampleRate: 16000, channels: 1 }, signal: new AbortController().signal });
+  expect(audio.format).toEqual({ kind: 'pcm', encoding: 'pcm_s16le', sampleRate, channels });
+  expect(new Uint8Array(await new Response(audio.stream).arrayBuffer())).toEqual(new Uint8Array([1, 2, 3, 4]));
+});
+
+it('rejects an incomplete final PCM frame, not arbitrary split network chunks', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(new Uint8Array([1, 2, 3]), { headers: audioHeaders() }));
+  const audio = await adapter('unknown').synthesize({ text: 'Hi', voice: 'alice', signal: new AbortController().signal });
+  await expect(new Response(audio.stream).arrayBuffer()).rejects.toMatchObject({ code: 'provider_error' });
+});
+
+it('cancels the upstream body on abort after metadata, before the first pull', async () => {
+  const cancel = vi.fn();
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(new ReadableStream({ cancel }), { headers: audioHeaders() }));
+  const controller = new AbortController();
+  const audio = await adapter('unknown').synthesize({ text: 'Hi', voice: 'alice', signal: controller.signal });
+  controller.abort();
+  await expect(audio.stream.getReader().read()).rejects.toMatchObject({ code: 'cancelled' });
+  expect(cancel).toHaveBeenCalledOnce();
+});
+
+it('cancels a pending upstream read after metadata on abort', async () => {
+  const cancel = vi.fn();
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(new ReadableStream({ cancel }), { headers: audioHeaders() }));
+  const controller = new AbortController();
+  const audio = await adapter('unknown').synthesize({ text: 'Hi', voice: 'alice', signal: controller.signal });
+  const read = audio.stream.getReader().read();
+  controller.abort();
+  await expect(read).rejects.toMatchObject({ code: 'cancelled' });
+  expect(cancel).toHaveBeenCalledOnce();
+});
+
+it('keeps provider failures before the first byte ahead of HTTP headers', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(new ReadableStream({ start(c) { c.error(new Error('private provider details')); } }), { headers: audioHeaders() }));
+  const audio = await synthesize({ adapter: adapter('unknown'), text: 'Hi', voice: 'alice', signal: new AbortController().signal });
+  await expect(synthesisResponse(audio)).rejects.toMatchObject({ code: 'provider_error', message: 'Speech provider failed.' });
+});
+
+it('checks an endpoint with no request-selectable format', async () => {
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(Response.json({ engine: { model: 'unknown', voices: ['alice'] } }))
+    .mockResolvedValueOnce(new Response(new Uint8Array(2), { headers: audioHeaders(22050, 1) }));
+  expect(await checkSpeechEndpoint({ tts: adapter('unknown'), signal: new AbortController().signal })).toMatchObject({ tts: { ok: true } });
 });

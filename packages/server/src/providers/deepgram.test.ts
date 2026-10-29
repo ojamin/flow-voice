@@ -1,3 +1,4 @@
+import { synthesizeChunks } from '../test-servers.js';
 import type { SpeechErrorCode } from '@flow-voice/core';
 import { speechError, normalizeSpeechError } from '../errors.js';
 import { once } from 'node:events';
@@ -49,7 +50,7 @@ describe('Deepgram voice catalog', () => {
   ])('synthesis selects configured/requested voice (%s, %s)', async (model, voice, expected) => {
     const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(new Uint8Array([1, 2])));
     const { tts } = createDeepgramAdapters({ provider: 'deepgram', model: model!, apiKey: 'secret' });
-    await collect(tts.synthesize({ text: 'hi', voice, format: { kind: 'pcm', ...format }, signal: new AbortController().signal }));
+    await collect(synthesizeChunks(tts, { text: 'hi', voice, format: { kind: 'pcm', ...format }, signal: new AbortController().signal }));
     expect(new URL(fetch.mock.calls[0]![0].toString()).searchParams.get('model')).toBe(expected);
   });
   it.each([401, 403, 500])('throws normalized catalog errors for HTTP %s rather than returning suggestions', async (status) => {
@@ -368,8 +369,7 @@ describe('Deepgram Aura streaming HTTP', () => {
       response.writeHead(200, { 'Content-Type': 'audio/l16' });
       response.write(Buffer.from([1, 2, 3, 4])); // deliberately never end
     });
-    const audio = tts
-      .synthesize({
+    const audio = synthesizeChunks(tts, {
         text: 'hello',
         voice: 'aura-2-apollo-en',
         speed: 1.1,
@@ -397,7 +397,7 @@ describe('Deepgram Aura streaming HTTP', () => {
       });
       expect(
         await collect(
-          tts.synthesize({
+          synthesizeChunks(tts, {
             text: 'hello',
             format: { kind: 'encoded', mimeType },
             signal: new AbortController().signal,
@@ -418,7 +418,7 @@ describe('Deepgram Aura streaming HTTP', () => {
     });
     await expect(
       collect(
-        tts.synthesize({ text: 'hi', format: pcmFormat, signal: new AbortController().signal }),
+        synthesizeChunks(tts, { text: 'hi', format: pcmFormat, signal: new AbortController().signal }),
       ),
     ).rejects.toMatchObject({ code, message: speechError(code as SpeechErrorCode).message });
   });
@@ -431,8 +431,7 @@ describe('Deepgram Aura streaming HTTP', () => {
       response.write(Buffer.from([1, 2]));
     });
     const controller = new AbortController();
-    const audio = tts
-      .synthesize({ text: 'hi', format: pcmFormat, signal: controller.signal })
+    const audio = synthesizeChunks(tts, { text: 'hi', format: pcmFormat, signal: controller.signal })
       [Symbol.asyncIterator]();
     await audio.next();
     const next = audio.next();
@@ -461,7 +460,7 @@ describe('Deepgram Aura streaming HTTP', () => {
     ).toBe(true);
     await expect(
       collect(
-        tts.synthesize({
+        synthesizeChunks(tts, {
           text: 'hi',
           format: { ...pcmFormat, sampleRate: 44100 },
           signal: new AbortController().signal,
