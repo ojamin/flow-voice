@@ -7,6 +7,7 @@ import type { AddressInfo } from 'node:net';
 import { WebSocketServer } from 'ws';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDeepgramAdapters } from './deepgram.js';
+import { localServer } from '../test-servers.js';
 
 async function collect<T>(source: AsyncIterable<T>): Promise<T[]> {
   const values: T[] = [];
@@ -441,10 +442,16 @@ describe('Deepgram Aura streaming HTTP', () => {
   });
 
   it('declares only supported capabilities and rejects unsupported formats', async () => {
+    const server = await localServer({ http(_request, response) {
+      response.setHeader('Content-Type', 'application/json');
+      response.end(JSON.stringify({ tts: [{ canonical_name: 'aura-2-thalia-en', name: 'thalia', languages: ['en'] }] }));
+    } });
+    cleanups.push(() => server.close());
     const { tts } = createDeepgramAdapters({
       provider: 'deepgram',
       model: 'nova-3',
       apiKey: 'secret',
+      baseUrl: server.url,
     });
     expect(tts.capabilities.streamingText).toBe(false);
     expect(
