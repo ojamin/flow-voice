@@ -4,45 +4,23 @@
   "license": "MIT",
   "type": "module",
   "files": [
-    "dist"
+    "dist",
+    "LICENSE",
+    "NOTICE"
   ],
   "exports": {
     "./styles.css": {
-      "flow-voice:source": "./styles.css",
       "default": "./dist/styles.css"
     },
     ".": {
-      "flow-voice:source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     }
   },
-  "scripts": {
-    "build": "tsc-rs -p tsconfig.build.json && node -e \"require('node:fs').copyFileSync('styles.css', 'dist/styles.css')\"",
-    "typecheck": "tsc-rs --noEmit -p tsconfig.json",
-    "lint": "oxlint src",
-    "test": "vitest run --passWithNoTests",
-    "test:unit": "vitest run --passWithNoTests"
-  },
-  "dependencies": {
-    "@flow-voice/core": "workspace:*",
-    "@flow-voice/browser": "workspace:*"
-  },
-  "devDependencies": {
-    "@testing-library/react": "16.3.2",
-    "@testing-library/user-event": "14.6.1",
-    "@types/node": "^22.20.1",
-    "@types/react": "^19.0.7",
-    "@types/react-dom": "19.2.3",
-    "jsdom": "29.1.1",
-    "oxlint": "^1.76.0",
-    "react": "^19.0.0",
-    "react-dom": "19.2.8",
-    "tsc-rs": "0.2.0",
-    "vitest": "^4.1.10"
-  },
   "peerDependencies": {
-    "react": "^19.0.0"
+    "react": "^19.0.0",
+    "@flow-voice/core": "github:ojamin/flow-voice#v0.7.0&path:/packages/core",
+    "@flow-voice/browser": "github:ojamin/flow-voice#v0.7.0&path:/packages/browser"
   }
 }

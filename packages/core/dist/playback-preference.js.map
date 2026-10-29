@@ -1,0 +1,1 @@
+{"version":3,"file":"playback-preference.js","sourceRoot":"","sources":["../src/playback-preference.ts"],"names":[],"mappings":"AAQA,mFAAmF;AACnF,MAAM,UAAU,yBAAyB,CAAC,EAAE,QAAQ,EAAE,UAAU,EAAE,QAAQ,EAIzE;IACC,OAAO,EAAE,GAAG,QAAQ,EAAE,GAAG,CAAC,UAAU,EAAE,KAAK,CAAC,CAAC,CAAC,EAAE,KAAK,EAAE,UAAU,CAAC,KAAK,EAAE,CAAC,CAAC,CAAC,EAAE,CAAC,EAAE,GAAG,QAAQ,EAAE,CAAC;AACjG,CAAC"}
