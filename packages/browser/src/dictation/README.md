@@ -45,7 +45,7 @@ Permission denial maps to `unauthorized`, missing microphone/insecure context to
 
 ## Controller and transport
 
-`createDictationController({ composer, transport, audio, capture?, autoSend?,
+`createDictationController({ composer, transport, audio, capture?, autoSend?, stopAfterSend?,
 language?, workletUrl?, playbackGate?, beforeCapture?, maxSessionMs?,
 connectionTimeoutMs?, finalizationMs? })` owns one active session. Its stable
 `getSnapshot`/`subscribe` store reports idle, connecting, listening, finalizing and
@@ -53,7 +53,10 @@ error states, transcript, RMS, countdown and a structured error. Call `dispose()
 on owner teardown. `cancel()` removes tentative words only; failure keeps the
 visible partial. `finish()` flushes audio, waits for the complete final/ended and
 rejects on finalization failure so normal Send cannot read an incomplete draft.
-Default session/connection/finalization limits are 300s/10s/10s.
+Default session duration is unlimited; connection/finalization limits are 10s/10s.
+`stopAfterSend` defaults to true. Set it to false to listen into a new empty draft
+after successful Send; release the submission binding only after clearing that draft.
+Invalidation still stops capture, and submission failure retains the finalized text.
 
 `playbackGate: { stop, isPlaying }` is injected: stop is awaited before microphone
 acquisition and acquisition is refused if playback still reports playing. Existing

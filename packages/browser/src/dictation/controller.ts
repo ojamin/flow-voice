@@ -24,6 +24,7 @@ type Session = {
   lastSoundAt: number;
   autoCancelled: boolean;
   sending: boolean;
+  submission?: boolean;
   stopped: boolean;
   keyword?: boolean;
   finishing?: Promise<void>;
@@ -76,6 +77,17 @@ export function createDictationController(
       code: 'transport_error',
       message: 'The speech connection could not deliver audio. Your transcript has been kept.',
     });
+  const submissionFailure = (s: Session) => {
+    if (s.failure || session !== s || disposed) return;
+    cleanup(s);
+    publish({
+      status: 'error',
+      error: {
+        code: 'transport_error',
+        message: 'Your message could not be sent. Your draft has been kept. Try Send again.',
+      },
+    });
+  };
   const cancelAutoSend = () => {
     if (session) session.autoCancelled = true;
     if (snapshot.countdownMs !== null) publish({ countdownMs: null });
@@ -141,21 +153,18 @@ export function createDictationController(
         text = matchSendKeyword(text, options.autoSend.keyword).text;
       if (!text.trim()) return;
       if (!options.composer.canSubmit()) return;
-      s.unbind();
       await options.composer.submit();
-    } catch {
-      if (!s.failure && session === s && !disposed) {
-        publish({
-          status: 'error',
-          error: {
-            code: 'transport_error',
-            message: 'Your message could not be sent. Your draft has been kept. Try Send again.',
-          },
-        });
+      if (!disposed && session === s) {
+        publish({ status: 'idle' });
+        if (options.stopAfterSend === false) await controller.start();
       }
+    } catch {
+      submissionFailure(s);
     } finally {
       s.unbind();
       s.unsubscribe();
+      if (session === s && snapshot.status === 'finalizing' && !s.failure)
+        publish({ status: 'idle' });
     }
   };
   const onMessage = (s: Session, message: SttServerMessage) => {
@@ -211,8 +220,9 @@ export function createDictationController(
           }
           options.composer.finish(text);
         }
-        cleanup(s, s.sending && !s.autoCancelled);
-        publish({ status: 'idle', rms: 0, countdownMs: null });
+        const submitting = s.submission || (s.sending && !s.autoCancelled);
+        cleanup(s, submitting);
+        publish({ status: submitting ? 'finalizing' : 'idle', rms: 0, countdownMs: null });
         break;
       }
     }
@@ -258,22 +268,28 @@ export function createDictationController(
       try {
         options.composer.begin();
         s.unbind = options.composer.bindSubmission({
+          failed: () => submissionFailure(s),
           finish: () => {
+            if (s.sending) return finishSession(s);
             cancelAutoSend();
+            s.submission = true;
             return finishSession(s);
           },
           release: () => {
-            if (current(s)) {
+            if (s.sending) return; // autoSubmit owns completion/restart.
+            if (session === s && !s.failure && !disposed) {
               cleanup(s);
               publish({ status: 'idle', rms: 0, countdownMs: null });
+              if (options.stopAfterSend === false) void controller.start();
             }
           },
           invalidate: () => {
             s.autoCancelled = true;
-            if (current(s)) {
+            if (session === s) {
               s.valid = false;
               void options.transport.send({ type: 'cancel' }).catch(() => {});
               cleanup(s);
+              session = undefined;
               publish({ ...initial });
             }
           },

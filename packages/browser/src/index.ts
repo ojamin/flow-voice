@@ -9,6 +9,10 @@ import type {
   SynthesisRequest,
 } from '@flow-voice/core';
 import type { PlaybackGate } from './player/gate.js';
+export { createCallSession } from './call-session.js';
+export type { CallSession, CallSessionOptions, CallSessionSnapshot, CallMediaSession, CallMediaAction } from './call-session.js';
+export { createVoiceMode } from './voice-mode.js';
+export type { VoiceMode, VoiceModeSnapshot, VoiceScope } from './voice-mode.js';
 export interface ExternalStore<T> {
   subscribe(listener: () => void): () => void;
   getSnapshot(): T;
@@ -45,6 +49,8 @@ export interface SubmissionBinding {
   finish(): Promise<void>;
   /** Normal submit completed; detach dictation's draft ownership. */
   release(): void;
+  /** Submit failed: retain the finalized draft and surface a stopped/error state. */
+  failed?(): void;
   /** Draft replaced/navigation occurred: stop without overwriting the new draft. */
   invalidate(): void;
 }
@@ -87,6 +93,8 @@ export interface DictationControllerOptions {
   capture?(options: AudioCaptureOptions): AudioCapture;
   /** `afterPause: false` sends only on `keyword`, with no silence countdown. */
   autoSend?: { enabled: boolean; silenceMs: number; keyword?: string; afterPause?: boolean };
+  /** Defaults to true (stop after Send). False starts a fresh session after successful submission. */
+  stopAfterSend?: boolean;
   language?: string;
   /** Optional: host synchronously stops playback before microphone acquisition (half duplex).
    * Without it, capture and playback run together; capture asks for echo cancellation. */

@@ -104,9 +104,16 @@ export function createTextareaComposerAdapter(options: {
     async submit() {
       const pending = binding;
       await pending?.finish();
-      if (options.canSubmit()) {
+      if (!element.value.trim() || !options.canSubmit()) {
+        pending?.invalidate();
+        return;
+      }
+      try {
         await options.submit();
         pending?.release();
+      } catch (error) {
+        pending?.failed?.();
+        throw error;
       }
     },
     bindSubmission(value) {

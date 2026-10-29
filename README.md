@@ -13,6 +13,54 @@ provider credentials in the browser. MIT licensed; see LICENSE and NOTICE.
 | `@flow-voice/browser` | Microphone capture/worklet, dictation, composer binding, playback and future-message auto-reader |
 | `@flow-voice/react` | Store hooks and unstyled accessible dictation/playback controls |
 
+## Voice mode, calls and continuous dictation
+
+`createDictationController({ ...options, stopAfterSend: false })` starts a fresh
+listening session after manual or automatic Send succeeds and the host has cleared
+the draft. The default is **true**, preserving existing stop-after-Send behavior.
+Empty drafts never auto-send; the textarea adapter also rejects empty manual sends.
+Custom composers must check their draft before submitting and call the submission
+binding's `release()` only after successful Send has cleared it (`failed?.()` on
+submission failure). Invalidate before
+replacing/clearing drafts or switching chats: that still stops dictation. Errors
+keep inserted text.
+
+`createVoiceMode({ scope?: 'one-chat' | 'on-screen' })` is an in-memory external
+store, never persisted. Its snapshot is `{ enabled, scope, chatId }`;
+`toggle(currentChatId)` switches Voice on/off, `setScope(scope)` changes scope,
+and `isReadingFor(chatOnScreen)` selects messages for auto-read. The default
+`one-chat` stays bound to the enabling chat even when another chat is shown;
+`on-screen` follows the displayed chat. Switching back to `one-chat` uses the
+last toggle's chat. A new store starts disabled on every reload.
+
+`createCallSession({ dictation, player, onVoiceChange?, mediaSession?, maxFailures? })`
+owns a call, not its dependencies. Subscribe to `{ status: 'idle' | 'active', muted }`.
+Call `start()` **directly inside the user gesture**: it invokes dictation start,
+player unlock and background-audio enable before awaiting. The call restarts capture
+after stops/provider ends/errors, ending after three consecutive start failures
+(configurable via `maxFailures`; successful listening resets the count).
+`setMuted(true)` stops capture without ending; unmute resumes. `end()` and
+`dispose()` stop capture, disable background audio, clear Media Session handlers,
+and restore Voice. Dispose also unsubscribes; it does not dispose the host's player
+or controller. End the call before navigation/draft invalidation if it must not restart.
+
+Voice remains host state: `onVoiceChange` enables it and returns a plain restore
+callback, for example `() => { const previous = voiceOn; setVoice(true); return () =>
+setVoice(previous); }`. Hosts configure auto-send on the controller: enable sending
+after pause, or use `{ enabled: true, silenceMs: 1000, keyword: 'send', afterPause: false }`
+for keyword-only sending when that is the user's only Send option. Do not attach a
+half-duplex playback gate during calls: calls intentionally capture and play together.
+
+Media Session defaults to `navigator.mediaSession` (`null` opts out): play/pause
+resume/pause the player, nexttrack skips a section, hangup ends, and togglemicrophone
+toggles mute. Unsupported actions are ignored individually; playback and microphone
+state are updated while active.
+
+`@flow-voice/core` exports `TTS_REPLY_INSTRUCTION`, a short per-message instruction:
+“Voice is on: wrap the parts of your reply meant to be spoken in `<tts>…</tts>` tags.”
+`@flow-voice/react` exports `useCallSession(session)` and `useVoiceMode(mode)`, thin
+`useSyncExternalStore` hooks for host-owned instances, with no new UI.
+
 ## Providers and capabilities
 
 | Provider id | Live transcription | Streaming synthesis |

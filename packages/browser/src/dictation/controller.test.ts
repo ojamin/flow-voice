@@ -100,6 +100,88 @@ const partial = (revision: number, committed: string, tentative: string): SttSer
   tentative,
 });
 
+describe('continuous dictation', () => {
+  it('does not restart if invalidated while automatic Send is pending', async () => {
+    const f = fixture({ enabled: true, silenceMs: 100, keyword: 'send' }, { stopAfterSend: false });
+    let resolve!: () => void;
+    f.submit.mockImplementation(() => new Promise<void>((done) => { resolve = done; }));
+    await f.controller.start();
+    f.emit(partial(1, 'hello send', ''));
+    await vi.waitFor(() => expect(f.submit).toHaveBeenCalledTimes(1));
+    expect(f.controller.getSnapshot().status).toBe('finalizing');
+    expect(f.capture).toHaveBeenCalledTimes(1);
+    f.composer.invalidate();
+    f.element.value = 'different chat';
+    resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(f.capture).toHaveBeenCalledTimes(1);
+    expect(f.controller.getSnapshot().status).toBe('idle');
+    expect(f.element.value).toBe('different chat');
+  });
+
+  it('does not manually submit an empty draft even if the host permits submission', async () => {
+    const f = fixture(undefined, { stopAfterSend: false });
+    f.element.value = '';
+    f.setFinal('');
+    await f.controller.start();
+    await f.composer.submit();
+    expect(f.submit).not.toHaveBeenCalled();
+    expect(f.controller.getSnapshot().status).toBe('idle');
+  });
+
+  it('keeps the finalized draft when submission fails', async () => {
+    const f = fixture(undefined, { stopAfterSend: false });
+    f.submit.mockRejectedValueOnce(new Error('send failed'));
+    await f.controller.start();
+    await expect(f.composer.submit()).rejects.toThrow('send failed');
+    expect(f.element.value).toBe('before hello worldafter');
+    expect(f.controller.getSnapshot().status).toBe('error');
+    expect(f.capture).toHaveBeenCalledTimes(1);
+  });
+
+  it('restarts after manual Send only after the host clears the draft', async () => {
+    const f = fixture(undefined, { stopAfterSend: false });
+    f.submit.mockImplementation(async () => { f.element.value = ''; });
+    await f.controller.start();
+    await f.composer.submit();
+    await vi.waitFor(() => expect(f.controller.getSnapshot().status).toBe('listening'));
+    expect(f.capture).toHaveBeenCalledTimes(2);
+    f.emit(partial(1, 'new draft', ''));
+    expect(f.element.value).toBe('new draft');
+    f.composer.invalidate();
+    expect(f.controller.getSnapshot().status).toBe('idle');
+    expect(f.capture).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    { enabled: true, silenceMs: 100 },
+    { enabled: true, silenceMs: 100, keyword: 'send', afterPause: false },
+  ])('restarts after auto-send into the cleared draft: %j', async (autoSend) => {
+    vi.useFakeTimers();
+    const f = fixture(autoSend, { stopAfterSend: false });
+    f.submit.mockImplementation(async () => { f.element.value = ''; });
+    await f.controller.start();
+    f.emit(partial(1, 'hello send', ''));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(f.submit).toHaveBeenCalledTimes(1);
+    expect(f.capture).toHaveBeenCalledTimes(2);
+    expect(f.controller.getSnapshot().status).toBe('listening');
+    expect(f.element.value).toBe('');
+  });
+
+  it('never auto-sends an empty draft and defaults to stopping after Send', async () => {
+    vi.useFakeTimers();
+    const f = fixture({ enabled: true, silenceMs: 100 });
+    await f.controller.start();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(f.submit).not.toHaveBeenCalled();
+    await f.composer.submit();
+    expect(f.controller.getSnapshot().status).toBe('idle');
+    expect(f.capture).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('dictation transaction', () => {
   it('replaces revisioned partials at the original caret, not the current caret; final is complete session text', async () => {
     const f = fixture();
