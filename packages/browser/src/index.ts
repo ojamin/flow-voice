@@ -196,3 +196,4 @@ export type { AudioFormat };
 export { createSpeechPreferences } from './preferences.js';
 export type { SpeechPreferences, SpeechPreferencesOptions } from './preferences.js';
 export { hasSpeech, readAloud } from './read-aloud.js';
+export { synthesisAudioFromResponse } from './synthesis-http.js';

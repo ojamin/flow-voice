@@ -102,6 +102,7 @@ export function openSpeechSocket(options: {
   maxBufferedBytes?: number;
   openTimeoutMs?: number;
   keepalive?: { intervalMs: number; message: string };
+  onOpen?(): void;
   acceptClose?(code: number, reason: string): boolean;
   closeError?(code: number, reason: string): SpeechErrorCode;
 }): SpeechSocket {
@@ -155,6 +156,7 @@ export function openSpeechSocket(options: {
     pump();
   };
   ws.on('open', () => {
+    options.onOpen?.();
     pump();
     if (options.keepalive)
       keepalive = setInterval(() => {

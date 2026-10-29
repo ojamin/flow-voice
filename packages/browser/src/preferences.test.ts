@@ -52,3 +52,13 @@ it('reads a whole message aloud: tagged sections, or all prose', () => {
   expect(hasSpeech('```\nonly code\n```')).toBe(false);
   expect(hasSpeech('Some prose.')).toBe(true);
 });
+
+it('passes read-aloud speed and language through to the player', () => {
+  const enqueue = vi.fn();
+  readAloud({ enqueue } as unknown as SpeechPlayer, {
+    id: 'm2', markdown: 'Hello.', voice: 'nova', speed: 1.25, language: 'en',
+  });
+  expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({
+    id: 'm2', voice: 'nova', speed: 1.25, language: 'en',
+  }));
+});

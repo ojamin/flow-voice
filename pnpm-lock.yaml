@@ -119,6 +119,9 @@ importers:
         specifier: workspace:*
         version: link:../core
     devDependencies:
+      '@flow-voice/server':
+        specifier: workspace:*
+        version: link:../server
       '@types/node':
         specifier: ^22.20.1
         version: 22.20.5

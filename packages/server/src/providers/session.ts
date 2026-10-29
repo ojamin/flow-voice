@@ -16,6 +16,10 @@ export function websocketStt(options: {
   fallback?: () => SttSession;
   parse(event: Record<string, unknown>): { ready?: boolean; events?: SttEvent[]; done?: boolean };
 }): SttSession {
+  let accept!: (verified: boolean) => void;
+  let reject!: (error: unknown) => void;
+  const readiness = new Promise<boolean>((resolve, fail) => { accept = resolve; reject = fail; });
+  void readiness.catch(() => {}); // Existing hosts may consume only events.
   const socket = openSpeechSocket(options);
   let ready = false,
     stopping = false,
@@ -40,6 +44,7 @@ export function websocketStt(options: {
     else socket.send(JSON.stringify(options.stop));
   };
   const cleanup = () => {
+    reject(normalizeSpeechError(speechError(options.signal.aborted ? 'cancelled' : 'provider_error')));
     closed = true;
     clearTimeout(timer);
     socket.close();
@@ -52,6 +57,7 @@ export function websocketStt(options: {
   else options.signal.addEventListener('abort', cleanup, { once: true });
   if (!closed) socket.send(JSON.stringify(options.start));
   return {
+    ready: readiness,
     write(pcm) {
       if (fallback) return fallback.write(pcm);
       if (closed || stopping) throw speechError('invalid_message');
@@ -84,6 +90,7 @@ export function websocketStt(options: {
               const result = options.parse(jsonFrame(frame));
               if (result.ready && !ready) {
                 ready = true;
+                accept(true);
                 clearTimeout(timer);
                 for (const pcm of pending) socket.send(options.audio(pcm));
                 pending.length = 0;
@@ -115,6 +122,7 @@ export function websocketStt(options: {
               clearTimeout(timer);
               socket.close();
               fallback = options.fallback();
+              accept(false);
               for (const pcm of pending) fallback.write(pcm);
               pending.length = 0;
               buffered = 0;
@@ -124,6 +132,7 @@ export function websocketStt(options: {
             }
             if (options.signal.aborted) yield { type: 'ended', reason: 'cancelled' };
             else {
+              reject(normalizeSpeechError(timeoutError ?? error));
               yield { type: 'error', ...normalizeSpeechError(timeoutError ?? error) };
               yield { type: 'ended', reason: 'error' };
             }

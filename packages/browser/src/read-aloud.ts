@@ -1,13 +1,15 @@
 import { speechSections } from '@flow-voice/core';
-import type { SpeechPlayer } from './index.js';
+import type { SpeechMessage, SpeechPlayer } from './index.js';
 
 /** Reads a whole message: its `<tts>` sections when it has them, otherwise all its prose
  * (code left out, links read by their label). */
-export function readAloud(player: SpeechPlayer, message: { id: string; markdown: string; voice?: string }) {
+export function readAloud(player: SpeechPlayer, message: { id: string; markdown: string } & Pick<SpeechMessage, 'voice' | 'speed' | 'language'>) {
   player.enqueue({
     id: message.id,
     sections: speechSections(message.markdown),
     ...(message.voice ? { voice: message.voice } : {}),
+    ...(message.speed !== undefined ? { speed: message.speed } : {}),
+    ...(message.language !== undefined ? { language: message.language } : {}),
   });
 }
 

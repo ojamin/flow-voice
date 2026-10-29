@@ -17,6 +17,9 @@ export type SttEvent =
   | { type: 'ended'; reason: 'stopped' | 'cancelled' | 'error' | 'limit' }
   | { type: 'error'; code: SpeechErrorCode; message: string; retryable: boolean };
 export interface SttSession {
+  /** Resolves true after provider acceptance, false when an audio request is needed (REST).
+   * Optional for custom adapters; absence requires an audio probe to verify connectivity. */
+  readonly ready?: Promise<boolean>;
   /** Synchronously admit PCM or throw limit_exceeded when the bounded buffer is full.
    * Never drop samples silently. Runner owns admission pacing; adapters cap buffered bytes. */
   write(pcm: Uint8Array): void;
@@ -79,3 +82,6 @@ export { createVoiceCatalog } from './catalog.js';
 export type { VoiceCatalog } from './catalog.js';
 export { createAdapters } from './registry.js';
 export { normalizeSpeechError } from './errors.js';
+export { synthesisResponse } from './synthesis-http.js';
+export { checkSpeechEndpoint } from './check-endpoint.js';
+export type { CheckSpeechEndpointOptions, SpeechEndpointCheck } from './check-endpoint.js';

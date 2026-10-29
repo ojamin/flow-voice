@@ -22,6 +22,10 @@ export function nativeSession(options: {
     complete: () => void,
   ): void;
 }): SttSession {
+  let accept!: (verified: boolean) => void;
+  let reject!: (error: unknown) => void;
+  const readiness = new Promise<boolean>((resolve, fail) => { accept = resolve; reject = fail; });
+  void readiness.catch(() => {}); // Existing hosts may consume only events.
   let ending = false,
     finished = false,
     ready = !options.startMessage,
@@ -40,6 +44,7 @@ export function nativeSession(options: {
     url: options.url,
     headers: { Authorization: options.authorization },
     signal: options.signal,
+    onOpen() { if (!options.startMessage) accept(true); },
     acceptClose: (code) => ending && code === 1000 && (acknowledged || !options.waitForTermination),
     closeError: (code, reason) =>
       options.closeCode?.(code, reason) ?? (code === 1008 ? 'unauthorized' : 'transport_error'),
@@ -47,6 +52,7 @@ export function nativeSession(options: {
   function finish(reason: 'stopped' | 'cancelled' | 'error', error?: unknown) {
     if (finished) return;
     finished = true;
+    reject(normalizeSpeechError(error ?? speechError(reason === 'cancelled' ? 'cancelled' : 'provider_error')));
     clearTimeout(timer);
     clearInterval(heartbeat);
     pending.length = 0;
@@ -88,6 +94,7 @@ export function nativeSession(options: {
   }
   function start() {
     ready = true;
+    if (options.startMessage) accept(true);
     for (const pcm of pending) writeAudio(pcm);
     pending.length = 0;
     buffered = 0;
@@ -127,6 +134,7 @@ export function nativeSession(options: {
     })();
   }
   return {
+    ready: readiness,
     write(pcm) {
       if (finished || ending) throw speechError('cancelled');
       if (!pcm.length || pcm.length % 2 || pcm.length > DEFAULT_LIMITS.maxFrameBytes)

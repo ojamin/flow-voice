@@ -1,6 +1,7 @@
 import type WebSocket from 'ws';
 import type { ProviderEndpointConfig } from '@flow-voice/core';
 import type { AudioChunk, SttAdapter, SttEvent, TtsAdapter } from '../index.js';
+import { normalizeSpeechError } from '../errors.js';
 
 import {
   nativeError,
@@ -60,6 +61,10 @@ export function createElevenLabsAdapters(config: ProviderEndpointConfig): {
       let revision = 0;
       let hasCommitted = false;
       let ready = false;
+      let accept!: (verified: boolean) => void;
+      let reject!: (error: unknown) => void;
+      const readiness = new Promise<boolean>((resolve, fail) => { accept = resolve; reject = fail; });
+      void readiness.catch(() => {}); // Existing hosts may consume only events.
       let ending = false;
       let closed = false;
       let wake: (() => void) | undefined;
@@ -75,6 +80,7 @@ export function createElevenLabsAdapters(config: ProviderEndpointConfig): {
       ) => {
         if (closed) return;
         closed = true;
+        reject(normalizeSpeechError(error ?? nativeError(reason === 'cancelled' ? 'cancelled' : 'provider_error')));
         clearTimeout(deadline);
         clearInterval(keepalive);
         signal.removeEventListener('abort', abort);
@@ -131,6 +137,7 @@ export function createElevenLabsAdapters(config: ProviderEndpointConfig): {
           if (message.message_type === 'session_started') {
             if (ready) throw nativeError();
             ready = true;
+            accept(true);
             clearTimeout(deadline);
             if (!ending) deadline = undefined;
             else deadline = setTimeout(() => finish('error', nativeError('timeout')), 10_000);
@@ -192,6 +199,7 @@ export function createElevenLabsAdapters(config: ProviderEndpointConfig): {
       signal.addEventListener('abort', abort, { once: true });
       if (signal.aborted) abort();
       return {
+        ready: readiness,
         write(pcm) {
           if (ending || closed) throw nativeError('cancelled');
           if (!pcm.byteLength || pcm.byteLength % 2 || pcm.byteLength > 32_000)

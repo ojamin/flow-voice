@@ -52,6 +52,45 @@ send path and an authenticated transport. A full integration is:
 Server side, `createVoiceCatalog({ ttlMs })` caches each endpoint's voices for synthesis while
 `refresh` serves a settings screen; `resolveVoice` picks the voice to use.
 
+### Synthesis over HTTP
+
+`synthesisResponse` (`@flow-voice/server`) awaits the first audio chunk before returning
+headers, so lazy provider failures still reach your normal JSON error handler. It
+streams that chunk and the rest without buffering the response; cancelling its body
+cancels the source. Hosts own authentication, error status and delivery.
+
+Express (Node's `Readable` and `pipeline` are from `node:stream` and
+`node:stream/promises`; `synthesizeForRequest` is your host's synthesis call):
+
+```ts
+app.post('/speech', async (req, res, next) => {
+  try {
+    const { headers, body } = await synthesisResponse(await synthesizeForRequest(req));
+    res.set(headers);
+    await pipeline(Readable.fromWeb(body), res);
+  } catch (error) { next(error); }
+});
+```
+
+Fetch-Response server handler:
+
+```ts
+async function POST(request: Request) {
+  const { headers, body } = await synthesisResponse(await synthesizeForRequest(request));
+  return new Response(body, { headers });
+}
+```
+
+In the browser, use `synthesisAudioFromResponse` (`@flow-voice/browser`) inside
+`createSpeechPlayer`'s `synthesize` callback, after checking `response.ok` with your
+host's error handling. It returns `{ mimeType, format, stream }`, rejecting invalid
+metadata and cancelling the body. The wire uses `Content-Type`, `Cache-Control:
+no-store`, and, for `audio/pcm`, `X-Audio-Sample-Rate`, `X-Audio-Channels` and
+`X-Audio-Encoding: pcm_s16le` (mono or stereo). Header names are exported as
+`SYNTHESIS_HEADERS` from core. For cross-origin requests, hosts must expose the audio
+metadata headers through CORS. `readAloud(player, { id, markdown, voice?, speed?,
+language? })` passes the optional synthesis preferences to the player.
+
 ### Calls
 
 A call keeps the microphone open and sends on its own: capture restarts after stops, provider
@@ -107,6 +146,21 @@ marked deprecated by OpenAI, with shutdown January 6, 2027; migrate explicitly
 before then. Provider/model availability can change independently of this library.
 
 ### Voice discovery
+
+For an admin **Test connection** button, call `checkSpeechEndpoint({ stt?, tts?, signal,
+timeoutMs? })` from `@flow-voice/server` (15-second total timeout by default). Unlike
+constructing adapters or listing built-in voices, this makes real, potentially billable
+provider requests: TTS lists available voices and synthesizes `Test.`, cancelling after
+the first audio chunk; STT waits for provider acceptance and cancels without audio.
+REST transcription (including OpenAI's realtime-to-REST fallback) has no authenticated
+handshake, so it submits 20 ms of silent PCM as WAV and waits for acceptance instead.
+Successful results contain `{ tts?: { ok: true, voices }, stt?: { ok: true, verified: true } }`;
+auth, model, network, timeout and cancellation failures reject with a normalized
+`SpeechError`, never provider diagnostics. Custom STT adapters may expose the optional
+`session.ready: Promise<boolean>` (`true` after provider acceptance, `false` if an audio
+probe is required); without it the check uses the silent-audio path. Their `end()` and
+events must report provider rejection, not just local admission. All adapters must
+honor abort signals so probes release their resources.
 
 - **OpenAI:** the official endpoint has no catalog API. `tts-1`/`tts-1-hd`
   list nine supported voices; `gpt-4o-mini-tts` and unknown/newer models list
