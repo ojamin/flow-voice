@@ -30,6 +30,19 @@ send path and an authenticated transport. A full integration is:
    stopAfterSend: preference.stopAfterSend })`. Read the preference through getters so changes
    apply mid-session. `autoSendFor` (core) sends on a pause during a call when the user chose
    neither send. Words the user edits become theirs; only later words are written.
+
+   TipTap users can import `createTiptapComposerAdapter` from the optional
+   `@flow-voice/browser/tiptap` subpath (install `@tiptap/core` and `@tiptap/pm` peers):
+   `createTiptapComposerAdapter({ editor, ownerKey: () => chatId, canSubmit, submit })`.
+   Interim words are ProseMirror decorations, absent from document text/JSON and undo
+   history; style `[data-flow-voice-tentative]` or pass `tentativeClassName`.
+   The host supplies its normal async send and draft identity; call `invalidate()`
+   before switching drafts and `dispose()` on unmount. Custom `EditorPort`s can opt
+   into the same presentation policy with `setTentative(value | null)` and report
+   exact sequential `edits` (or `replaced: true`, even for identical-text resets)
+   through `subscribeDraftChanges`. Without `setTentative`, interim text retains
+   the existing in-document behavior. Editor submissions await send success and
+   report failures to the bound controller before rethrowing.
 3. **Voice.** `createVoiceMode({ scope?, onScopeChange? })` holds Voice on/off and its scope:
    `one-chat` keeps Voice with the chat it was turned on in (turning it on in another chat moves
    it there); `on-screen` reads whichever chat is shown. Call `setChatOnScreen` when the shown

@@ -110,7 +110,7 @@ export interface DictationControllerOptions {
 export { createDictationController } from './dictation/controller.js';
 export { createTextareaComposerAdapter } from './dictation/textarea.js';
 export { createEditorComposerAdapter } from './dictation/editor.js';
-export type { EditorComposerAdapter, EditorDraft, EditorPort } from './dictation/editor.js';
+export type { DraftChange, EditorEdit, TentativeText, EditorComposerAdapter, EditorDraft, EditorPort } from './dictation/editor.js';
 export type SynthesisFetcher = (
   request: SynthesisRequest & { signal: AbortSignal },
 ) => Promise<SynthesisAudio>;
