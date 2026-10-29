@@ -1,3 +1,4 @@
+import { synthesizeChunks } from '../test-servers.js';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { once } from 'node:events';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -48,8 +49,7 @@ describe('Cartesia native SSE', () => {
       apiKey: 'test-key',
       baseUrl,
     }).tts;
-    const audio = tts
-      .synthesize({
+    const audio = synthesizeChunks(tts, {
         text: 'Hello',
         voice: 'voice',
         speed: 1.2,
@@ -119,7 +119,7 @@ describe('Cartesia native SSE', () => {
       });
       const tts = createCartesiaAdapters({ provider: 'cartesia', model: 'sonic-3', baseUrl }).tts;
       const consume = async () => {
-        for await (const _chunk of tts.synthesize({
+        for await (const _chunk of synthesizeChunks(tts, {
           text: 'Hi',
           voice: 'id',
           format,
@@ -145,19 +145,17 @@ describe('Cartesia native SSE', () => {
     const tts = createCartesiaAdapters({ provider: 'cartesia', model: 'sonic-3', baseUrl }).tts;
     const request = { text: 'Hi', voice: 'id', format, signal: signal() };
     await expect(
-      tts
-        .synthesize({ ...request, speed: 5 })
+      synthesizeChunks(tts, { ...request, speed: 5 })
         [Symbol.asyncIterator]()
         .next(),
     ).rejects.toMatchObject({ code: 'invalid_message' });
     await expect(
-      tts
-        .synthesize({ ...request, format: { kind: 'encoded', mimeType: 'audio/mpeg' } })
+      synthesizeChunks(tts, { ...request, format: { kind: 'encoded', mimeType: 'audio/mpeg' } })
         [Symbol.asyncIterator]()
         .next(),
     ).rejects.toMatchObject({ code: 'unsupported' });
     expect(calls).toBe(0);
-    await expect(tts.synthesize(request)[Symbol.asyncIterator]().next()).rejects.toMatchObject({
+    await expect(synthesizeChunks(tts, request)[Symbol.asyncIterator]().next()).rejects.toMatchObject({
       code: 'unauthorized',
       retryable: false,
     });
@@ -174,14 +172,12 @@ describe('Cartesia native SSE', () => {
     });
     const tts = createCartesiaAdapters({ provider: 'cartesia', model: 'sonic-3', baseUrl }).tts;
     const controller = new AbortController();
-    const audio = tts
-      .synthesize({ text: 'Hi', voice: 'id', format, signal: controller.signal })
+    const audio = synthesizeChunks(tts, { text: 'Hi', voice: 'id', format, signal: controller.signal })
       [Symbol.asyncIterator]();
     await audio.next();
     await audio.return?.();
     await disconnected;
-    const cancelled = tts
-      .synthesize({ text: 'Hi', voice: 'id', format, signal: controller.signal })
+    const cancelled = synthesizeChunks(tts, { text: 'Hi', voice: 'id', format, signal: controller.signal })
       [Symbol.asyncIterator]();
     await cancelled.next();
     controller.abort();

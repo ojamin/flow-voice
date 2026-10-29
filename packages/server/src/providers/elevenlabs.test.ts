@@ -1,3 +1,4 @@
+import { synthesizeChunks } from '../test-servers.js';
 import { speechError } from '../errors.js';
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
 import { once } from 'node:events';
@@ -253,8 +254,7 @@ describe('ElevenLabs native adapters', () => {
       baseUrl,
       apiKey: 'test-key',
     });
-    const audio = tts
-      .synthesize({
+    const audio = synthesizeChunks(tts, {
         text: 'Hello',
         voice: 'voice/id',
         speed: 1.1,
@@ -292,7 +292,7 @@ describe('ElevenLabs native adapters', () => {
     });
     const { tts } = createElevenLabsAdapters({ provider: 'elevenlabs', model: 'model', baseUrl });
     expect(await tts.listVoices!(signal())).toEqual([{ id: 'id', name: 'Voice' }]);
-    const mp3 = tts.synthesize({
+    const mp3 = synthesizeChunks(tts, {
       text: 'text',
       voice: 'voice',
       format: { kind: 'encoded', mimeType: 'audio/mpeg' },
@@ -300,13 +300,12 @@ describe('ElevenLabs native adapters', () => {
     });
     for await (const chunk of mp3) expect(chunk.audio).toEqual(new Uint8Array([4, 5]));
     const request = { text: 'text', voice: 'voice', format: pcm, signal: signal() };
-    await expect(tts.synthesize(request)[Symbol.asyncIterator]().next()).rejects.toMatchObject({
+    await expect(synthesizeChunks(tts, request)[Symbol.asyncIterator]().next()).rejects.toMatchObject({
       code: 'rate_limited',
       retryable: true,
     });
     await expect(
-      tts
-        .synthesize({ ...request, format: { ...pcm, sampleRate: 48000 } })
+      synthesizeChunks(tts, { ...request, format: { ...pcm, sampleRate: 48000 } })
         [Symbol.asyncIterator]()
         .next(),
     ).rejects.toMatchObject({ code: 'unsupported' });
@@ -319,8 +318,7 @@ describe('ElevenLabs native adapters', () => {
     });
     const controller = new AbortController();
     const tts = createElevenLabsAdapters({ provider: 'elevenlabs', model: 'model', baseUrl }).tts;
-    const audio = tts
-      .synthesize({ text: 'Hello', voice: 'id', format: pcm, signal: controller.signal })
+    const audio = synthesizeChunks(tts, { text: 'Hello', voice: 'id', format: pcm, signal: controller.signal })
       [Symbol.asyncIterator]();
     await audio.next();
     controller.abort();

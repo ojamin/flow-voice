@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import type { AudioFormat } from '@flow-voice/core';
-import { synthesisResponse } from '@flow-voice/server';
+import { createAdapters, synthesize, synthesisResponse } from '@flow-voice/server';
 import { synthesisAudioFromResponse } from './index.js';
 
 it.each<AudioFormat>([
@@ -45,4 +45,28 @@ it('rejects a missing body', async () => {
 it('keeps the metadata error when body cancellation fails', async () => {
   const body = new ReadableStream<Uint8Array>({ cancel() { throw new Error('transport closed'); } });
   await expect(synthesisAudioFromResponse(new Response(body))).rejects.toMatchObject({ code: 'invalid_message' });
+});
+
+it.each([{ sampleRate: 22050, channels: 1 }, { sampleRate: 48000, channels: 2 }])('round trips unknown model response metadata through server and browser: %j', async ({ sampleRate, channels }) => {
+  const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(new Uint8Array([1, 2, 3, 4]), { headers: {
+    'content-type': `audio/pcm;rate=${sampleRate};channels=${channels}`,
+    'x-audio-encoding': 'pcm_s16le',
+  } }));
+  try {
+    const adapter = createAdapters({ provider: 'moss-compat', model: 'unknown-model', baseUrl: 'https://speech.example' }).tts!;
+    const audio = await synthesize({ adapter, text: 'Hi', voice: 'voice', signal: new AbortController().signal });
+    const { headers, body } = await synthesisResponse(audio);
+    const decoded = await synthesisAudioFromResponse(new Response(body, { headers }));
+    expect(decoded.format).toEqual({ kind: 'pcm', encoding: 'pcm_s16le', sampleRate, channels });
+    expect(new Uint8Array(await new Response(decoded.stream).arrayBuffer())).toEqual(new Uint8Array([1, 2, 3, 4]));
+  } finally { fetch.mockRestore(); }
+});
+
+it('uses the shared content-type parameter parser and rejects conflicting declarations', async () => {
+  const headers = { 'content-type': 'audio/pcm;rate="22050";channels=1;encoding=pcm_s16le' };
+  const audio = await synthesisAudioFromResponse(new Response(new Uint8Array(2), { headers }));
+  expect(audio.format).toEqual({ kind: 'pcm', encoding: 'pcm_s16le', sampleRate: 22050, channels: 1 });
+  const cancel = vi.fn();
+  await expect(synthesisAudioFromResponse(new Response(new ReadableStream({ cancel }), { headers: { ...headers, 'x-audio-sample-rate': '48000' } }))).rejects.toMatchObject({ code: 'invalid_message' });
+  expect(cancel).toHaveBeenCalledOnce();
 });

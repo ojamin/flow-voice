@@ -1,9 +1,38 @@
 import { describe, expect, it } from 'vitest';
-import { listVoices, resolveVoice, synthesize, type TtsAdapter } from './index.js';
+import { createAdapters, listVoices, resolveVoice, synthesize, type TtsAdapter } from './index.js';
 import { createFakeAdapters } from './testing.js';
 import { deferred } from './test-servers.js';
+import { requestedSynthesis } from './audio-stream.js';
 const format = { kind: 'pcm', encoding: 'pcm_s16le', sampleRate: 16000, channels: 1 } as const;
 describe('synthesis boundary', () => {
+  it.each(['openai', 'elevenlabs', 'cartesia', 'deepgram'])('request-selected %s returns its default or explicit format', async (provider) => {
+    const adapter = createAdapters({ provider, model: 'model' }).tts!;
+    const request = { text: 'Hi', signal: new AbortController().signal };
+    const defaultAudio = await adapter.synthesize(request);
+    expect(defaultAudio.format).toEqual(adapter.capabilities.formats[0]);
+    await defaultAudio.stream.cancel();
+    const selected = adapter.capabilities.formats.at(-1)!;
+    const selectedAudio = await adapter.synthesize({ ...request, format: selected });
+    expect(selectedAudio.format).toEqual(selected);
+    await selectedAudio.stream.cancel();
+  });
+  it('returns response-reported audio unchanged without request-format labelling or equality gates', async () => {
+    const audio = { format: { ...format, sampleRate: 22050 }, mimeType: 'audio/pcm', stream: new ReadableStream<Uint8Array>() };
+    const adapter: TtsAdapter = { ...createFakeAdapters().tts,
+      capabilities: { ...createFakeAdapters().tts.capabilities, formats: [] },
+      async synthesize() { return audio; },
+    };
+    expect(await synthesize({ adapter, text: 'Hi', format, signal: new AbortController().signal })).toBe(audio);
+    await audio.stream.cancel();
+  });
+  it('request-selected adapters default to the first format and reject unsupported requests', async () => {
+    const adapter = createFakeAdapters().tts;
+    const audio = await synthesize({ adapter, text: 'Hi', signal: new AbortController().signal });
+    expect(audio.format).toEqual(adapter.capabilities.formats[0]);
+    await audio.stream.cancel();
+    await expect(synthesize({ adapter, text: 'Hi', format: { ...format, sampleRate: 8000 }, signal: new AbortController().signal }))
+      .rejects.toMatchObject({ code: 'unsupported' });
+  });
   it('resolves requested, configured, default, first, then empty-catalog passthrough', () => {
     const voices = [{ id: 'first', name: 'First' }, { id: 'default', name: 'Default', isDefault: true }, { id: 'configured', name: 'Configured' }];
     expect(resolveVoice({ voices, requested: 'first', configured: 'configured' })).toBe('first');
@@ -14,23 +43,19 @@ describe('synthesis boundary', () => {
     expect(resolveVoice({ voices: [], configured: 'configured' })).toBe('configured');
     expect(resolveVoice({ voices: [] })).toBeUndefined();
   });
-  it('validates semantic text cap, format and speed before calling provider', async () => {
+  it('validates semantic text cap and speed before calling provider', async () => {
     let calls = 0;
     const adapter: TtsAdapter = {
       ...createFakeAdapters().tts,
-      async *synthesize() {
+      synthesize: requestedSynthesis(async function* () {
         calls++;
         yield { audio: new Uint8Array(2) };
-      },
+      }),
     };
     for (const input of [
       { text: ' ' },
       { text: 'a'.repeat(4001) },
       { text: 'hi', speed: NaN },
-      {
-        text: 'hi',
-        format: { kind: 'pcm', encoding: 'pcm_s16le', sampleRate: 8000, channels: 1 } as const,
-      },
     ]) {
       await expect(
         synthesize({ adapter, format, signal: new AbortController().signal, ...input }),
@@ -44,7 +69,7 @@ describe('synthesis boundary', () => {
     const entered = deferred();
     const adapter: TtsAdapter = {
       ...createFakeAdapters().tts,
-      async *synthesize({ signal }) {
+      synthesize: requestedSynthesis(async function* ({ signal }) {
         calls++;
         try {
           entered.resolve();
@@ -56,7 +81,7 @@ describe('synthesis boundary', () => {
         } finally {
           cleaned = true;
         }
-      },
+      }),
     };
     const audio = await synthesize({
       adapter,
@@ -77,7 +102,7 @@ describe('synthesis boundary', () => {
     let cleaned = false;
     const adapter: TtsAdapter = {
       ...createFakeAdapters().tts,
-      async *synthesize({ signal }) {
+      synthesize: requestedSynthesis(async function* ({ signal }) {
         try {
           entered.resolve();
           await new Promise<void>((resolve) =>
@@ -88,7 +113,7 @@ describe('synthesis boundary', () => {
         } finally {
           cleaned = true;
         }
-      },
+      }),
     };
     const controller = new AbortController();
     const audio = await synthesize({ adapter, text: 'hi', format, signal: controller.signal });

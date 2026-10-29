@@ -1,5 +1,6 @@
 import type { ProviderEndpointConfig, Voice } from '@flow-voice/core';
 import type { TtsAdapter } from '../index.js';
+import { requestedSynthesis } from '../audio-stream.js';
 import {
   nativeError,
   nativeFetch,
@@ -29,7 +30,7 @@ export function createCartesiaAdapters(config: ProviderEndpointConfig): { tts: T
         formats: pcmFormats(rates),
         voices: 'list',
       },
-      async *synthesize(request) {
+      synthesize: requestedSynthesis(async function* (request) {
         let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
         try {
           const format = request.format;
@@ -122,7 +123,7 @@ export function createCartesiaAdapters(config: ProviderEndpointConfig): { tts: T
             reader.releaseLock();
           }
         }
-      },
+      }),
       async listVoices(signal): Promise<readonly Voice[]> {
         try {
           const voices: Voice[] = [];

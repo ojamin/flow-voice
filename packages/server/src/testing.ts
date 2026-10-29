@@ -1,4 +1,5 @@
 import type { AudioFormat } from '@flow-voice/core';
+import { requestedSynthesis } from './audio-stream.js';
 import type { SttAdapter, SttEvent, TtsAdapter } from './index.js';
 /** Deterministic network-free fixtures. A final is emitted for each accepted frame, followed
  * by ended. Text/PCM are synthetic; this does not model recognition quality or timing. */
@@ -78,10 +79,10 @@ export function createFakeAdapters(options: { transcript?: string; pcm?: Uint8Ar
         formats: [format],
         voices: 'fixed',
       },
-      async *synthesize({ signal }) {
+      synthesize: requestedSynthesis(async function* ({ signal }) {
         signal.throwIfAborted();
         yield { audio: (options.pcm ?? new Uint8Array([0, 0, 1, 0])).slice() };
-      },
+      }),
       async listVoices(signal) {
         signal.throwIfAborted();
         return [{ id: 'fake', name: 'Test voice' }];

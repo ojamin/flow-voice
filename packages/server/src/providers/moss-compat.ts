@@ -1,7 +1,9 @@
 import type { AudioFormat, ProviderEndpointConfig, Voice } from '@flow-voice/core';
+import { audioFormatFromHeaders } from '@flow-voice/core';
+import { audioFromResponse } from '../audio-stream.js';
 import type { SttAdapter, SttEvent, TtsAdapter } from '../index.js';
 import { speechError } from '../errors.js';
-import { authHeaders, checkedFetch, endpoint, responseAudio, responseJson } from '../transport.js';
+import { authHeaders, checkedFetch, endpoint, responseJson } from '../transport.js';
 import { websocketStt } from './session.js';
 
 /** Exact speech gateway wire fields; endpoint prefixes are additionally supported. */
@@ -13,14 +15,6 @@ export function createMossCompatAdapters(config: ProviderEndpointConfig): {
   const base = config.baseUrl,
     headers = authHeaders(config.apiKey);
   const model = config.model || 'moss-tts-local-v1.5-q8_0-vulkan';
-  // Capabilities are synchronous; verify this model-family format against every stream.
-  const formats = [
-    { prefix: 'neutts', sampleRate: 24000, channels: 1 },
-    { prefix: 'voxcpm2', sampleRate: 48000, channels: 1 },
-  ] as const;
-  const { sampleRate, channels } = formats.find(({ prefix }) => model.startsWith(prefix)) ??
-    { sampleRate: 48000, channels: 2 as const };
-  const pcm: AudioFormat = { kind: 'pcm', encoding: 'pcm_s16le', sampleRate, channels };
   async function discover(
     signal: AbortSignal,
   ): Promise<{ voices: Voice[]; defaultVoice?: string }> {
@@ -127,18 +121,11 @@ export function createMossCompatAdapters(config: ProviderEndpointConfig): {
     },
     tts: {
       id: 'moss-compat',
-      capabilities: { streamingAudio: true, streamingText: false, formats: [pcm], voices: 'list' },
+      capabilities: { streamingAudio: true, streamingText: false, formats: [], voices: 'list' },
       async listVoices(signal) {
         return (await discover(signal)).voices;
       },
-      async *synthesize(request) {
-        if (
-          request.format.kind !== 'pcm' ||
-          request.format.encoding !== 'pcm_s16le' ||
-          request.format.sampleRate !== sampleRate ||
-          request.format.channels !== channels
-        )
-          throw speechError('unsupported');
+      async synthesize(request) {
         if (request.speed !== undefined && request.speed !== 1) throw speechError('unsupported');
         if (!request.text.trim() || request.text.trim().length > 2000)
           throw speechError('limit_exceeded');
@@ -156,31 +143,17 @@ export function createMossCompatAdapters(config: ProviderEndpointConfig): {
             temperature: 1,
           }),
         });
-        const [mediaType, ...parameters] = (response.headers.get('content-type') ?? '').split(';');
-        const params = new Map(parameters.map((parameter) => {
-          const [key, value] = parameter.trim().split('=');
-          return [key?.toLowerCase(), value?.trim()];
-        }));
-        const rates = [response.headers.get('x-audio-sample-rate'), params.get('rate')]
-          .filter((value) => value != null);
-        const channelCounts = [response.headers.get('x-audio-channels'), params.get('channels')]
-          .filter((value) => value != null);
-        if (
-          response.status !== 200 ||
-          mediaType?.trim().toLowerCase() !== 'audio/pcm' ||
-          response.headers.get('x-audio-encoding') !== 'pcm_s16le' ||
-          !rates.length || rates.some((value) => value !== String(sampleRate)) ||
-          !channelCounts.length || channelCounts.some((value) => value !== String(channels))
-        ) {
-          await response.body?.cancel();
+        let format: AudioFormat;
+        try {
+          format = audioFormatFromHeaders(response.headers);
+          if (response.status !== 200 || format.kind !== 'pcm' || !response.body || request.signal.aborted)
+            throw speechError('provider_error');
+        } catch {
+          await response.body?.cancel().catch(() => {});
+          if (request.signal.aborted) throw speechError('cancelled');
           throw speechError('provider_error');
         }
-        let bytes = 0;
-        for await (const chunk of responseAudio(response)) {
-          bytes += chunk.audio.length;
-          yield chunk;
-        }
-        if (!bytes || bytes % (channels * 2) !== 0) throw speechError('provider_error');
+        return audioFromResponse(response, format, request.signal);
       },
     },
   };

@@ -74,9 +74,7 @@ export async function checkSpeechEndpoint(options: CheckSpeechEndpointOptions): 
       const adapter = options.tts;
       const voices = adapter.capabilities.voices !== 'none' && adapter.listVoices
         ? await adapter.listVoices(signal) : [];
-      const format = adapter.capabilities.formats[0];
-      if (!format) throw speechError('unsupported');
-      const audio = await synthesize({ adapter, signal, format, voice: resolveVoice({ voices }), text: 'Test.' });
+      const audio = await synthesize({ adapter, signal, voice: resolveVoice({ voices }), text: 'Test.' });
       const reader = audio.stream.getReader();
       try {
         const first = await reader.read();

@@ -179,7 +179,7 @@ inserted text.
 | `elevenlabs` | Yes | Yes |
 | `assemblyai` | Yes | No |
 | `cartesia` | No | Yes |
-| `moss-compat` | Yes, mono PCM16 16kHz | Yes, model-specific PCM16 (see below) |
+| `moss-compat` | Yes, mono PCM16 16kHz | Yes, response-reported PCM16 rate/channels |
 
 Use `createAdapters({ provider, apiKey })` on the server, optionally setting
 `baseUrl` and `model`. Resolve
@@ -187,6 +187,52 @@ one endpoint per speech kind and inspect the returned adapter's `capabilities`
 for supported formats/options. Unknown provider ids fail closed; unsupported kinds
 are absent, never silently substituted. Custom HTTP(S) base URLs preserve their
 path prefix. `@flow-voice/server/testing` provides in-memory fixtures only.
+
+### Synthesis and endpoint settings
+
+`TtsAdapter.synthesize(request & { format?: AudioFormat; signal: AbortSignal })`
+returns `Promise<SynthesisAudio>` (`{ stream, format, mimeType }`), not a chunk
+iterator. This is a breaking adapter contract change. The high-level server
+`synthesize({ adapter, text, voice?, speed?, language?, format?, signal,
+maxTextChars? })` validates the request and returns the adapter's audio unchanged.
+Always use the **returned** format for playback and HTTP delivery. Capabilities'
+`formats` lists request-selectable formats only and may be empty. Request-selected
+providers choose `formats[0]` when the request omits its format; response-reported
+providers determine the actual format from their response, not a model name or
+the request. No resampling or transcoding is implied. Cancel the returned stream
+when delivery stops. `checkSpeechEndpoint` probes synthesis without requiring an
+advertised format, and `synthesisResponse` still waits for the first audio chunk
+before returning headers to the host.
+
+Core's `audioFormatFromHeaders(headers)` is the shared provider/server/browser
+metadata parser. PCM requires explicit `pcm_s16le` encoding, a positive integer
+sample rate and mono/stereo channels, from `X-Audio-*` headers or `audio/pcm`
+parameters (`encoding`, `rate`, `channels`). Overlapping declarations must agree;
+quoted numeric parameters are supported. Missing, contradictory, duplicate or
+ambiguous metadata throws `invalid_message`; `audio/L16` is not little endian.
+Encoded MIME types retain their codec parameters. The existing `SYNTHESIS_HEADERS`
+wire names are unchanged, including compatibility with older HTTP consumers.
+
+Core also exports strict `audioFormatSchema`, `voiceSchema`,
+`dictationPreferenceSchema` and `speechEndpointOptionsSchema`.
+`normalizeDictationPreference` remains tolerant for stored/legacy preferences.
+Endpoint options use the settings speed range 0.5–2; general synthesis permits
+positive provider-supported speeds. Voice ids up to 200 characters and encoded
+MIME codec parameters are retained.
+
+`validateSpeechEndpointDraft(value, previous?)` returns `{ ok: true, value }` or
+`{ ok: false, issues }`. It trims fields, canonicalizes HTTP(S) URLs (including
+default ports/trailing slashes), rejects credentials/query/fragment, and requires
+a new API key if an existing endpoint's provider or normalized URL changes.
+Model/options edits preserve key binding. It does not perform DNS, URL policy,
+authorization, persistence or secret retrieval. After those host checks,
+`prepareSpeechEndpoint({ kind, draft, apiKey?, createAdapters? })` validates options
+and registry support and returns the adapters. Production `fake` is rejected;
+tests can explicitly inject their adapter factory.
+
+`resolvePlaybackPreference({ defaults?, preference?, override? })` matches message
+playback precedence: account defaults, the user's nonempty voice, then the
+speaker override (including speed/mute). It does not choose speaker identity.
 
 OpenAI defaults to `gpt-live-transcribe` and `gpt-4o-mini-tts`. Cartesia defaults to `sonic-3` and ElevenLabs
 synthesis to `eleven_flash_v2_5` when no model is given. Committed-turn STT
@@ -268,9 +314,11 @@ MOSS-compat speaks the author's speech gateway protocol: WebSocket
 `/v1/realtime/transcriptions`, voice discovery at `/health`, and streaming TTS at
 `/v1/audio/speech/stream`. Its default model is `moss-tts-local-v1.5-q8_0-vulkan`;
 voices come only from the `/health` engine section whose model matches exactly
-(unknown models fail discovery). NeuTTS streams PCM16 at 24kHz mono, VoxCPM2 at
-48kHz mono, and MOSS at 48kHz stereo (also the default for other model families).
-Each stream's audio headers must confirm the requested format before audio is delivered.
+(unknown models fail discovery, but can synthesize with an explicit voice).
+The response headers determine PCM16 sample rate/channels for every model,
+including unknown models. There is no model-format table or guessed fallback.
+Invalid metadata cancels the upstream body before returning audio. PCM frame
+alignment is checked at EOF across chunks, not at arbitrary network boundaries.
 TTS supports speed 1 and at most 2000 UTF-16 code units per request. Split longer
 prose at section boundaries. See NOTICE for provenance.
 

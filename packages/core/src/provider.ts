@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 /** Known endpoint families; capability discovery belongs to the adapter, not this list. */
 export const PROVIDER_IDS = [
   'openai',
@@ -37,6 +39,7 @@ export interface SttCapabilities {
 export interface TtsCapabilities {
   streamingAudio: boolean;
   streamingText: boolean;
+  /** Request-selectable formats only; response-reported providers may advertise none. */
   formats: readonly AudioFormat[];
   voices: 'list' | 'fixed' | 'none';
 }
@@ -51,6 +54,12 @@ export interface Voice {
   /** Provider-selected default, independent of account preferences. */
   isDefault?: boolean;
 }
+export const voiceSchema = z.strictObject({
+  id: z.string().trim().min(1).max(200),
+  name: z.string().trim().min(1).max(200),
+  language: z.string().trim().min(1).max(64).optional(),
+  isDefault: z.boolean().optional(),
+});
 export type AudioFormat =
   | { kind: 'pcm'; encoding: 'pcm_s16le'; sampleRate: number; channels: 1 | 2 }
   | { kind: 'encoded'; mimeType: string };
