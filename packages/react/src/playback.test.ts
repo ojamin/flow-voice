@@ -87,6 +87,11 @@ describe('playback controls', () => {
         (element) => element.props.role === 'alert',
       )?.props.children,
     ).toBe('Speech playback failed');
+    const status = flatten(PlayerControls({ player: store('error') })).find(
+      (element) => element.props.role === 'status',
+    )?.props.children;
+    expect(String(status)).toMatch(/^Speech stopped\./);
+    expect(String(status)).not.toContain('Reading aloud');
   });
   it('provides a host render path without adding product chrome', () => {
     const children = vi.fn(() => 'host controls');

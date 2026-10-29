@@ -67,7 +67,9 @@ export function PlayerControls({
       ? 'Preparing speech…'
       : snapshot.status === 'paused'
         ? 'Speech paused'
-        : snapshot.status === 'idle' ? 'No speech queued.' : 'Reading aloud';
+        : snapshot.status === 'error'
+          ? 'Speech stopped.'
+          : snapshot.status === 'idle' ? 'No speech queued.' : 'Reading aloud';
   return createElement(
     'div',
     {
