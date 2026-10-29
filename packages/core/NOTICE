@@ -1,0 +1,6 @@
+The Deepgram, ElevenLabs, AssemblyAI and Cartesia adapters were written with
+LiveKit agents-js (Apache-2.0, https://github.com/livekit/agents-js) consulted
+as a protocol reference.
+
+MOSS-compat implements the protocol of the author's own speech gateway,
+as used in the author's code-assistant integration.
