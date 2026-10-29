@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 /** A user's dictation choices. Hosts store them (per user, device or environment). */
 export interface DictationPreference {
   /** Send after a pause in speech, with a countdown that can be cancelled. */
@@ -11,6 +13,14 @@ export interface DictationPreference {
 }
 
 export const SILENCE_MS = { default: 1500, min: 300, max: 60_000 } as const;
+
+export const dictationPreferenceSchema = z.strictObject({
+  sendAfterPause: z.boolean(),
+  silenceMs: z.number().int().min(SILENCE_MS.min).max(SILENCE_MS.max),
+  sendOnWord: z.boolean(),
+  keyword: z.string().trim().max(40),
+  stopAfterSend: z.boolean(),
+});
 
 export const DEFAULT_DICTATION_PREFERENCE: Readonly<DictationPreference> = Object.freeze({
   sendAfterPause: false,

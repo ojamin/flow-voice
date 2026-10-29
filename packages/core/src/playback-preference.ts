@@ -5,6 +5,15 @@ export interface PlaybackPreference {
   speed?: number;
   muted?: boolean;
 }
+
+/** Account defaults, then the user's nonempty voice, then the speaker override. */
+export function resolvePlaybackPreference({ defaults, preference, override }: {
+  defaults?: PlaybackPreference;
+  preference?: PlaybackPreference;
+  override?: PlaybackPreference;
+}): PlaybackPreference {
+  return { ...defaults, ...(preference?.voice ? { voice: preference.voice } : {}), ...override };
+}
 /** One person's speech settings; how a host stores them is up to the host. */
 export interface SpeechUserPreferences extends DictationPreference {
   voice?: string;
