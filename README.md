@@ -130,7 +130,7 @@ inserted text.
 | `elevenlabs` | Yes | Yes |
 | `assemblyai` | Yes | No |
 | `cartesia` | No | Yes |
-| `moss-compat` | Yes, mono PCM16 16kHz | Yes, PCM16 48kHz stereo |
+| `moss-compat` | Yes, mono PCM16 16kHz | Yes, model-specific PCM16 (see below) |
 
 Use `createAdapters({ provider, apiKey })` on the server, optionally setting
 `baseUrl` and `model`. Resolve
@@ -176,7 +176,7 @@ honor abort signals so probes release their resources.
   normalized provider errors, never a partial built-in catalog.
 - **ElevenLabs:** lists the account's live `/v1/voices` catalog.
 - **Cartesia:** lists the live `/voices` catalog with bounded pagination.
-- **MOSS-compat:** discovers voices and the default from `/health`.
+- **MOSS-compat:** discovers voices and the default from the configured model's section in `/health`.
 - **AssemblyAI:** transcription only; no synthesis voice catalog.
 
 All discovery paths preserve the endpoint prefix. Lists mark at most one
@@ -218,6 +218,10 @@ that supplies its own bounded finalization lifecycle.
 MOSS-compat speaks the author's speech gateway protocol: WebSocket
 `/v1/realtime/transcriptions`, voice discovery at `/health`, and streaming TTS at
 `/v1/audio/speech/stream`. Its default model is `moss-tts-local-v1.5-q8_0-vulkan`;
+voices come only from the `/health` engine section whose model matches exactly
+(unknown models fail discovery). NeuTTS streams PCM16 at 24kHz mono, VoxCPM2 at
+48kHz mono, and MOSS at 48kHz stereo (also the default for other model families).
+Each stream's audio headers must confirm the requested format before audio is delivered.
 TTS supports speed 1 and at most 2000 UTF-16 code units per request. Split longer
 prose at section boundaries. See NOTICE for provenance.
 

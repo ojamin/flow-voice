@@ -86,6 +86,9 @@ describe('native provider protocols on loopback servers', () => {
         void jsonBody(request).then((body) => {
           bodies.push(body);
           response.setHeader('content-type', 'audio/pcm');
+          response.setHeader('x-audio-encoding', 'pcm_s16le');
+          response.setHeader('x-audio-sample-rate', '48000');
+          response.setHeader('x-audio-channels', '2');
           response.end(Buffer.from([1, 0, 2, 0]));
         });
       },
@@ -330,6 +333,7 @@ describe('native provider protocols on loopback servers', () => {
             response.end(
               JSON.stringify({
                 moss_tts: {
+                  model: 'moss-tts-local-v1.5-q8_0-vulkan',
                   voices: ['alice', { voice: 'bob', display_name: 'Bob' }, '../bad', 'alice'],
                   default_voice: 'bob',
                 },
@@ -344,6 +348,9 @@ describe('native provider protocols on loopback servers', () => {
           void jsonBody(request).then((value) => {
             body.resolve(value);
             response.setHeader('content-type', 'audio/pcm');
+            response.setHeader('x-audio-encoding', 'pcm_s16le');
+            response.setHeader('x-audio-sample-rate', '48000');
+            response.setHeader('x-audio-channels', '2');
             response.write(Buffer.from([1, 0, 2, 0]));
           });
           response.on('close', () => {
@@ -463,9 +470,12 @@ describe('native provider protocols on loopback servers', () => {
     const upstream = await server({
       http(request, response) {
         if (request.url === '/health')
-          response.end(JSON.stringify({ moss_tts: { voices: ['alice'] } }));
+          response.end(JSON.stringify({ moss_tts: { model: 'moss-tts-local-v1.5-q8_0-vulkan', voices: ['alice'] } }));
         else {
           response.setHeader('content-type', 'audio/pcm');
+          response.setHeader('x-audio-encoding', 'pcm_s16le');
+          response.setHeader('x-audio-sample-rate', '48000');
+          response.setHeader('x-audio-channels', '2');
           response.end(Buffer.from([1, 2, 3]));
         }
       },

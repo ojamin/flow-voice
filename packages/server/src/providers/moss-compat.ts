@@ -4,7 +4,6 @@ import { speechError } from '../errors.js';
 import { authHeaders, checkedFetch, endpoint, responseAudio, responseJson } from '../transport.js';
 import { websocketStt } from './session.js';
 
-const pcm: AudioFormat = { kind: 'pcm', encoding: 'pcm_s16le', sampleRate: 48000, channels: 2 };
 /** Exact speech gateway wire fields; endpoint prefixes are additionally supported. */
 export function createMossCompatAdapters(config: ProviderEndpointConfig): {
   stt: SttAdapter;
@@ -13,6 +12,15 @@ export function createMossCompatAdapters(config: ProviderEndpointConfig): {
   if (!config.baseUrl) throw speechError('not_configured');
   const base = config.baseUrl,
     headers = authHeaders(config.apiKey);
+  const model = config.model || 'moss-tts-local-v1.5-q8_0-vulkan';
+  // Capabilities are synchronous; verify this model-family format against every stream.
+  const formats = [
+    { prefix: 'neutts', sampleRate: 24000, channels: 1 },
+    { prefix: 'voxcpm2', sampleRate: 48000, channels: 1 },
+  ] as const;
+  const { sampleRate, channels } = formats.find(({ prefix }) => model.startsWith(prefix)) ??
+    { sampleRate: 48000, channels: 2 as const };
+  const pcm: AudioFormat = { kind: 'pcm', encoding: 'pcm_s16le', sampleRate, channels };
   async function discover(
     signal: AbortSignal,
   ): Promise<{ voices: Voice[]; defaultVoice?: string }> {
@@ -24,13 +32,16 @@ export function createMossCompatAdapters(config: ProviderEndpointConfig): {
       await response.body?.cancel();
       throw speechError('provider_error');
     }
-    const value = (await responseJson(response, 65536)) as {
-      moss_tts?: { voices?: unknown; default_voice?: unknown };
-    };
-    if (!value?.moss_tts || !Array.isArray(value.moss_tts.voices))
+    const value = (await responseJson(response, 65536)) as Record<string, unknown> | null;
+    const section = Object.values(value ?? {}).find(
+      (entry): entry is Record<string, unknown> =>
+        entry !== null && typeof entry === 'object' && 'model' in entry && entry.model === model,
+    );
+    const catalog = section?.voices ?? section?.speakers;
+    if (!section || !Array.isArray(catalog))
       throw speechError('provider_error');
     const voices: Voice[] = [];
-    for (const raw of value.moss_tts.voices.slice(0, 64)) {
+    for (const raw of catalog.slice(0, 64)) {
       const item = raw as Record<string, unknown> | null;
       const id = typeof raw === 'string' ? raw.trim() : (item?.id ?? item?.voice ?? item?.name);
       if (
@@ -47,8 +58,8 @@ export function createMossCompatAdapters(config: ProviderEndpointConfig): {
       });
     }
     const supplied =
-      typeof value.moss_tts.default_voice === 'string'
-        ? value.moss_tts.default_voice.trim()
+      typeof section.default_voice === 'string'
+        ? section.default_voice.trim()
         : undefined;
     const defaultVoice = voices.find((voice) => voice.id === supplied) ?? voices[0];
     if (defaultVoice) defaultVoice.isDefault = true;
@@ -124,8 +135,8 @@ export function createMossCompatAdapters(config: ProviderEndpointConfig): {
         if (
           request.format.kind !== 'pcm' ||
           request.format.encoding !== 'pcm_s16le' ||
-          request.format.sampleRate !== 48000 ||
-          request.format.channels !== 2
+          request.format.sampleRate !== sampleRate ||
+          request.format.channels !== channels
         )
           throw speechError('unsupported');
         if (request.speed !== undefined && request.speed !== 1) throw speechError('unsupported');
@@ -138,16 +149,28 @@ export function createMossCompatAdapters(config: ProviderEndpointConfig): {
           signal: AbortSignal.any([request.signal, AbortSignal.timeout(300000)]),
           headers: { ...headers, accept: 'audio/pcm', 'content-type': 'application/json' },
           body: JSON.stringify({
-            model: config.model || 'moss-tts-local-v1.5-q8_0-vulkan',
+            model,
             input: request.text.trim(),
             voice,
             emotion: 'neutral',
             temperature: 1,
           }),
         });
+        const [mediaType, ...parameters] = (response.headers.get('content-type') ?? '').split(';');
+        const params = new Map(parameters.map((parameter) => {
+          const [key, value] = parameter.trim().split('=');
+          return [key?.toLowerCase(), value?.trim()];
+        }));
+        const rates = [response.headers.get('x-audio-sample-rate'), params.get('rate')]
+          .filter((value) => value != null);
+        const channelCounts = [response.headers.get('x-audio-channels'), params.get('channels')]
+          .filter((value) => value != null);
         if (
           response.status !== 200 ||
-          response.headers.get('content-type')?.split(';')[0]?.trim() !== 'audio/pcm'
+          mediaType?.trim().toLowerCase() !== 'audio/pcm' ||
+          response.headers.get('x-audio-encoding') !== 'pcm_s16le' ||
+          !rates.length || rates.some((value) => value !== String(sampleRate)) ||
+          !channelCounts.length || channelCounts.some((value) => value !== String(channels))
         ) {
           await response.body?.cancel();
           throw speechError('provider_error');
@@ -157,7 +180,7 @@ export function createMossCompatAdapters(config: ProviderEndpointConfig): {
           bytes += chunk.audio.length;
           yield chunk;
         }
-        if (!bytes || bytes % 4 !== 0) throw speechError('provider_error');
+        if (!bytes || bytes % (channels * 2) !== 0) throw speechError('provider_error');
       },
     },
   };
