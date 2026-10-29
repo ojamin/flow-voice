@@ -1,0 +1,124 @@
+/* Optional native baseline. Import explicitly; hosts can instead map slots. */
+:where(
+  [data-flow-voice-endpoint-form],
+  [data-flow-voice-preferences-form],
+  [data-flow-voice-controls],
+  [data-flow-voice-call],
+  [data-flow-voice-player],
+  [data-flow-voice-select]
+) {
+  color: var(--flow-voice-fg, #202124);
+  accent-color: var(--flow-voice-accent, #166534);
+}
+:where([data-flow-voice-endpoint-form], [data-flow-voice-preferences-form]) {
+  max-inline-size: 42rem;
+}
+:where([data-flow-voice-endpoint-form], [data-flow-voice-preferences-form]) fieldset {
+  min-inline-size: 0;
+  margin-block: var(--flow-voice-gap, 0.75rem);
+  border: 1px solid var(--flow-voice-border, #767676);
+  padding: var(--flow-voice-gap, 0.75rem);
+}
+[data-flow-voice-field] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-block-end: var(--flow-voice-gap, 0.75rem);
+}
+[data-flow-voice-field]:has(> input[type='checkbox']) {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+[data-flow-voice-field] > input[type='checkbox'] {
+  order: -1;
+  flex: none;
+  margin: 0;
+}
+[data-flow-voice-field]:has(> input[type='checkbox']) > label {
+  display: inline-flex;
+  align-items: center;
+  flex: 1;
+  min-block-size: 2.75rem;
+  cursor: pointer;
+}
+[data-flow-voice-field]:has(> input[type='checkbox']) > span {
+  flex-basis: 100%;
+}
+[data-flow-voice-field] :where(input:not([type='checkbox']):not([type='radio']), select) {
+  box-sizing: border-box;
+  inline-size: 100%;
+  min-inline-size: 0;
+  font: inherit;
+  color: var(--flow-voice-fg, #202124);
+  background: var(--flow-voice-bg, #fff);
+  border: 1px solid var(--flow-voice-border, #767676);
+  border-radius: 0.25rem;
+  padding: 0.5rem;
+  min-block-size: 2.75rem;
+}
+:where([data-flow-voice-controls], [data-flow-voice-call], [data-flow-voice-player]) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--flow-voice-gap, 0.75rem);
+}
+:where(
+    [data-flow-voice-endpoint-form],
+    [data-flow-voice-preferences-form],
+    [data-flow-voice-controls],
+    [data-flow-voice-call],
+    [data-flow-voice-player],
+    [data-flow-voice-select]
+  )
+  button,
+[data-flow-voice-mic] {
+  font: inherit;
+  padding: 0.5rem 0.75rem;
+  margin: 0.125rem;
+  cursor: pointer;
+  min-block-size: 2.75rem;
+}
+[data-flow-voice-active='true'] > button[aria-pressed='true'] {
+  color: #fff;
+  background: var(--flow-voice-accent, #166534);
+  border-color: var(--flow-voice-accent, #166534);
+}
+:where(
+    [data-flow-voice-endpoint-form],
+    [data-flow-voice-preferences-form],
+    [data-flow-voice-controls],
+    [data-flow-voice-call],
+    [data-flow-voice-player],
+    [data-flow-voice-select]
+  )
+  :focus-visible,
+[data-flow-voice-mic]:focus-visible {
+  outline: 2px solid var(--flow-voice-accent, #166534);
+  outline-offset: 3px;
+}
+:where(
+    [data-flow-voice-endpoint-form],
+    [data-flow-voice-preferences-form],
+    [data-flow-voice-controls],
+    [data-flow-voice-call],
+    [data-flow-voice-player],
+    [data-flow-voice-select]
+  )
+  [role='alert'] {
+  color: var(--flow-voice-error, #b91c1c);
+  overflow-wrap: anywhere;
+}
+:where(
+    [data-flow-voice-endpoint-form],
+    [data-flow-voice-preferences-form],
+    [data-flow-voice-controls],
+    [data-flow-voice-call],
+    [data-flow-voice-player],
+    [data-flow-voice-select]
+  )
+  button:disabled,
+[data-flow-voice-mic]:disabled {
+  cursor: not-allowed;
+}

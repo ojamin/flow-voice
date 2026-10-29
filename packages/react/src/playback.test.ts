@@ -91,7 +91,7 @@ describe('playback controls', () => {
   it('provides a host render path without adding product chrome', () => {
     const children = vi.fn(() => 'host controls');
     const player = store('playing');
-    expect(PlayerControls({ player, className: 'host', children }).props.className).toBe('host');
+    expect(PlayerControls({ player, className: 'host', children })?.props.className).toBe('host');
     expect(children).toHaveBeenCalledWith(player.getSnapshot(), player);
   });
   it('toggles per-message reading to stop and preserves the legacy onRead callback', () => {
