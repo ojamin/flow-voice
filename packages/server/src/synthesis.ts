@@ -4,6 +4,23 @@ import type { SynthesizeOptions, VoiceListOptions } from './index.js';
 import { normalizeSpeechError, speechError } from './errors.js';
 import { linkedAbort } from './transport.js';
 
+/** Select within a catalog; an unavailable/empty catalog permits host-supplied ids. */
+export function resolveVoice({
+  voices,
+  requested,
+  configured,
+}: {
+  voices: readonly Voice[];
+  requested?: string;
+  configured?: string;
+}): string | undefined {
+  if (!voices.length) return requested ?? configured;
+  return voices.find((voice) => voice.id === requested)?.id
+    ?? voices.find((voice) => voice.id === configured)?.id
+    ?? voices.find((voice) => voice.isDefault)?.id
+    ?? voices[0]!.id;
+}
+
 function sameFormat(a: AudioFormat, b: AudioFormat): boolean {
   return a.kind === 'encoded'
     ? b.kind === 'encoded' && a.mimeType === b.mimeType

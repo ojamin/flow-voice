@@ -15,10 +15,56 @@ async function collect<T>(source: AsyncIterable<T>): Promise<T[]> {
 }
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   vi.useRealTimers();
   await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
 });
 const format = { encoding: 'pcm_s16le' as const, sampleRate: 16000 as const, channels: 1 as const };
+describe('Deepgram voice catalog', () => {
+  it('reads live TTS metadata, marks only the configured default and preserves prefixes/auth', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({
+      stt: [{ canonical_name: 'nova-3' }],
+      tts: [
+        { name: 'thalia', canonical_name: 'aura-2-thalia-en', architecture: 'aura-2', languages: ['en', 'en-US'] },
+        { name: 'luna', canonical_name: 'aura-2-luna-en', architecture: 'aura-2', languages: ['en'] },
+        { name: 'luna', canonical_name: 'aura-2-luna-en', architecture: 'aura-2', languages: ['en'] },
+      ],
+    }));
+    const { tts } = createDeepgramAdapters({ provider: 'deepgram', model: 'aura-2-luna-en', apiKey: 'secret', baseUrl: 'https://speech.example/prefix' });
+    expect(tts.capabilities.voices).toBe('list');
+    expect(await tts.listVoices!(new AbortController().signal)).toEqual([
+      { id: 'aura-2-thalia-en', name: 'Thalia (aura-2, en)', language: 'en' },
+      { id: 'aura-2-luna-en', name: 'Luna (aura-2, en)', language: 'en', isDefault: true },
+      { id: 'aura-2-luna-en', name: 'Luna (aura-2, en)', language: 'en' },
+    ]);
+    expect(String(fetch.mock.calls[0]![0])).toBe('https://speech.example/prefix/v1/models');
+    expect(fetch.mock.calls[0]![1]).toMatchObject({ headers: { Authorization: 'Token secret' }, redirect: 'error', signal: expect.any(AbortSignal) });
+  });
+  it.each([
+    ['aura-2-luna-en', undefined, 'aura-2-luna-en'],
+    ['aura-2-luna-en', 'aura-2-thalia-en', 'aura-2-thalia-en'],
+    ['nova-3', undefined, 'aura-2-thalia-en'],
+    ['', undefined, 'aura-2-thalia-en'],
+  ])('synthesis selects configured/requested voice (%s, %s)', async (model, voice, expected) => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(new Uint8Array([1, 2])));
+    const { tts } = createDeepgramAdapters({ provider: 'deepgram', model: model!, apiKey: 'secret' });
+    await collect(tts.synthesize({ text: 'hi', voice, format: { kind: 'pcm', ...format }, signal: new AbortController().signal }));
+    expect(new URL(fetch.mock.calls[0]![0].toString()).searchParams.get('model')).toBe(expected);
+  });
+  it.each([401, 403, 500])('throws normalized catalog errors for HTTP %s rather than returning suggestions', async (status) => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status }));
+    const { tts } = createDeepgramAdapters({ provider: 'deepgram', model: '', apiKey: 'secret' });
+    await expect(tts.listVoices!(new AbortController().signal)).rejects.toMatchObject({ code: status === 500 ? 'provider_error' : 'unauthorized' });
+  });
+  it('rejects excessive catalogs and malformed entries', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch');
+    const { tts } = createDeepgramAdapters({ provider: 'deepgram', model: '', apiKey: 'secret' });
+    fetch.mockResolvedValueOnce(Response.json({ tts: Array.from({ length: 1001 }, () => ({})) }));
+    await expect(tts.listVoices!(new AbortController().signal)).rejects.toMatchObject({ code: 'limit_exceeded' });
+    fetch.mockResolvedValueOnce(Response.json({ tts: [{ name: 'missing canonical name' }] }));
+    await expect(tts.listVoices!(new AbortController().signal)).rejects.toMatchObject({ code: 'provider_error' });
+  });
+});
 async function wsFixture() {
   const server = new WebSocketServer({ port: 0, host: '127.0.0.1' });
   await once(server, 'listening');

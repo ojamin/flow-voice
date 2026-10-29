@@ -1,7 +1,14 @@
 import type { AudioFormat, ProviderEndpointConfig } from '@flow-voice/core';
 import type { SttAdapter, TtsAdapter } from '../index.js';
 import { speechError } from '../errors.js';
-import { authHeaders, checkedFetch, endpoint, responseAudio } from '../transport.js';
+import {
+  authHeaders,
+  checkedFetch,
+  endpoint,
+  parseVoices,
+  responseAudio,
+  responseJsonValue,
+} from '../transport.js';
 import { websocketStt } from './session.js';
 import { restTranscription } from './openai-rest.js';
 
@@ -32,6 +39,17 @@ export function createOpenAIAdapters(config: ProviderEndpointConfig): {
   tts: TtsAdapter;
 } {
   const base = config.baseUrl ?? 'https://api.openai.com/v1';
+  const customEndpoint = new URL(base).hostname !== 'api.openai.com';
+  const model = config.model || 'gpt-4o-mini-tts';
+  const modelVoices =
+    model === 'tts-1' || model === 'tts-1-hd'
+      ? voices.filter((id) => !['ballad', 'verse', 'marin', 'cedar'].includes(id))
+      : voices;
+  const builtInVoices = () => modelVoices.map((id) => ({
+    id,
+    name: id,
+    ...(id === 'alloy' ? { isDefault: true } : {}),
+  }));
   const headers = authHeaders(config.apiKey);
   const transport = config.options?.sttTransport ?? 'realtime';
   const timeoutMs = config.options?.sttRequestTimeoutMs ?? 10_000;
@@ -126,13 +144,45 @@ export function createOpenAIAdapters(config: ProviderEndpointConfig): {
     },
     tts: {
       id: 'openai',
-      capabilities: { streamingAudio: true, streamingText: false, formats, voices: 'fixed' },
+      capabilities: {
+        streamingAudio: true,
+        streamingText: false,
+        formats,
+        voices: customEndpoint ? 'list' : 'fixed',
+      },
       async listVoices(signal) {
         signal.throwIfAborted();
-        return voices.map((id) => ({ id, name: id }));
+        if (customEndpoint) {
+          try {
+            const response = await checkedFetch(endpoint(base, 'audio/voices'), {
+              headers,
+              signal: AbortSignal.any([signal, AbortSignal.timeout(4000)]),
+            });
+            const body = await responseJsonValue(response);
+            const entries = Array.isArray(body)
+              ? body
+              : (body as { voices?: unknown } | null)?.voices;
+            const discovered = parseVoices(Array.isArray(entries)
+              ? entries.map((entry: unknown) => {
+                  if (typeof entry === 'string') return { id: entry, name: entry };
+                  const value = entry as Record<string, unknown> | null;
+                  const id = value?.id ?? value?.name ?? value?.voice;
+                  return { ...value, id, name: value?.name ?? id };
+                })
+              : entries);
+            const preferred = discovered.find((voice) => voice.id === 'alloy') ?? discovered[0];
+            if (preferred) preferred.isDefault = true;
+            return discovered;
+          } catch {
+            signal.throwIfAborted();
+            // Compatible servers need not expose discovery; these are suggestions only.
+          }
+        }
+        return builtInVoices();
       },
       async *synthesize(request) {
-        if (request.voice && !voices.includes(request.voice)) throw speechError('invalid_message');
+        if (!customEndpoint && request.voice && !modelVoices.includes(request.voice))
+          throw speechError('invalid_message');
         if (
           request.speed !== undefined &&
           (!Number.isFinite(request.speed) || request.speed < 0.25 || request.speed > 4)
@@ -156,7 +206,7 @@ export function createOpenAIAdapters(config: ProviderEndpointConfig): {
           headers: { ...headers, 'Content-Type': 'application/json' },
           signal: request.signal,
           body: JSON.stringify({
-            model: config.model || 'gpt-4o-mini-tts',
+            model,
             input: request.text,
             voice: request.voice ?? 'alloy',
             response_format,

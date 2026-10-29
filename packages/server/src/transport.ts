@@ -235,6 +235,13 @@ export async function responseJson(
   response: Response,
   maxBytes = 1_048_576,
 ): Promise<Record<string, unknown>> {
+  const value = await responseJsonValue(response, maxBytes);
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw speechError('provider_error');
+  return value as Record<string, unknown>;
+}
+/** Bounded JSON reader for endpoints that also return a top-level array. */
+export async function responseJsonValue(response: Response, maxBytes = 1_048_576): Promise<unknown> {
   if (!response.body) throw speechError('provider_error');
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -248,9 +255,7 @@ export async function responseJson(
       chunks.push(value);
     }
     const value: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-    if (!value || typeof value !== 'object' || Array.isArray(value))
-      throw speechError('provider_error');
-    return value as Record<string, unknown>;
+    return value;
   } finally {
     await reader.cancel().catch(() => {});
     reader.releaseLock();

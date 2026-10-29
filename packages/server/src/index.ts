@@ -74,6 +74,6 @@ export interface VoiceListOptions {
   signal: AbortSignal;
 }
 export { createLiveTranscriptionSession } from './runner.js';
-export { synthesize, listVoices } from './synthesis.js';
+export { synthesize, listVoices, resolveVoice } from './synthesis.js';
 export { createAdapters } from './registry.js';
 export { normalizeSpeechError } from './errors.js';

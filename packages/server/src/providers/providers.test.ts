@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AudioFormat, SttServerMessage } from '@flow-voice/core';
 import {
   createAdapters,
@@ -11,6 +11,7 @@ import { localServer, jsonBody, deferred } from '../test-servers.js';
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const close of cleanups.splice(0)) await close();
 });
 const pcm24: AudioFormat = { kind: 'pcm', encoding: 'pcm_s16le', sampleRate: 24000, channels: 1 };
@@ -22,6 +23,60 @@ async function server(options: Parameters<typeof localServer>[0]) {
 }
 
 describe('native provider protocols on loopback servers', () => {
+  it.each(['tts-1', 'tts-1-hd', 'gpt-4o-mini-tts', 'future-tts', ''])('OpenAI filters voices and validation for model %s', async (model) => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(new Uint8Array([1, 2])));
+    for (const baseUrl of [undefined, 'https://api.openai.com/v1']) {
+      const adapter = createAdapters({ provider: 'openai', model, baseUrl }).tts!;
+      const voices = await adapter.listVoices!(new AbortController().signal);
+      const legacy = model === 'tts-1' || model === 'tts-1-hd';
+      expect(voices.map((voice) => voice.id)).toEqual(legacy
+        ? ['alloy', 'ash', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer']
+        : ['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer', 'verse', 'marin', 'cedar']);
+      expect(voices.filter((voice) => voice.isDefault).map((voice) => voice.id)).toEqual(['alloy']);
+      expect(adapter.capabilities.voices).toBe('fixed');
+      const source = adapter.synthesize({ text: 'hello', voice: 'marin', format: pcm24, signal: new AbortController().signal });
+      if (legacy) await expect(source[Symbol.asyncIterator]().next()).rejects.toMatchObject({ code: 'invalid_message' });
+      else for await (const _chunk of source) { /* drain */ }
+    }
+    expect(fetch).toHaveBeenCalledTimes(model === 'tts-1' || model === 'tts-1-hd' ? 0 : 2);
+  });
+  it.each([
+    { voices: ['af_bella', { id: 'af_sarah', name: 'Sarah' }, { name: 'af_nova' }, { voice: 'af_heart' }] },
+    ['af_bella', { id: 'af_sarah', name: 'Sarah' }, { name: 'af_nova' }, { voice: 'af_heart' }],
+  ])('OpenAI compatible catalogs accept wrapped and bare arrays', async (body) => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json(body));
+    const adapter = createAdapters({ provider: 'openai', model: 'kokoro', baseUrl: 'https://speech.example/prefix/v1/', apiKey: 'secret' }).tts!;
+    const voices = await adapter.listVoices!(new AbortController().signal);
+    expect(voices).toEqual([
+      { id: 'af_bella', name: 'af_bella', isDefault: true },
+      { id: 'af_sarah', name: 'Sarah' },
+      { id: 'af_nova', name: 'af_nova' },
+      { id: 'af_heart', name: 'af_heart' },
+    ]);
+    expect(adapter.capabilities.voices).toBe('list');
+    expect(String(fetch.mock.calls[0]![0])).toBe('https://speech.example/prefix/v1/audio/voices');
+    expect(fetch.mock.calls[0]![1]).toMatchObject({ headers: { Authorization: 'Bearer secret' }, redirect: 'error', signal: expect.any(AbortSignal) });
+  });
+  it('OpenAI compatible discovery falls back on 404, without rejecting server-specific synthesis voices', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(null, { status: 404 }))
+      .mockResolvedValueOnce(new Response(new Uint8Array([1, 2])));
+    const adapter = createAdapters({ provider: 'openai', model: 'tts-1', baseUrl: 'https://speech.example/prefix/v1' }).tts!;
+    const voices = await adapter.listVoices!(new AbortController().signal);
+    expect(voices).toHaveLength(9);
+    expect(voices.find((voice) => voice.id === 'alloy')?.isDefault).toBe(true);
+    for await (const _chunk of adapter.synthesize({ text: 'hello', voice: 'af_bella', format: pcm24, signal: new AbortController().signal })) { /* drain */ }
+    expect(String(fetch.mock.calls[1]![0])).toBe('https://speech.example/prefix/v1/audio/speech');
+    expect(JSON.parse(fetch.mock.calls[1]![1]!.body as string).voice).toBe('af_bella');
+  });
+  it('OpenAI compatible discovery respects limits and cancellation', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ voices: Array.from({ length: 1001 }, () => 'v') }));
+    const adapter = createAdapters({ provider: 'openai', model: '', baseUrl: 'https://speech.example/v1' }).tts!;
+    expect(await adapter.listVoices!(new AbortController().signal)).toHaveLength(13);
+    const abort = new AbortController();
+    abort.abort();
+    await expect(listVoices({ adapter, signal: abort.signal })).rejects.toMatchObject({ code: 'cancelled' });
+  });
   it('MOSS trusts an explicit voice across sections without any discovery requests', async () => {
     const urls: string[] = [];
     const bodies: Record<string, unknown>[] = [];
@@ -341,10 +396,14 @@ describe('native provider protocols on loopback servers', () => {
   it.each([
     ['audio/mpeg', 'mp3'],
     ['audio/ogg; codecs=opus', 'opus'],
-  ])('OpenAI preserves encoded %s stream and fixed voices', async (mimeType, responseFormat) => {
+  ])('OpenAI preserves encoded %s stream and fallback voice suggestions', async (mimeType, responseFormat) => {
     const body = deferred<Record<string, unknown>>();
     const upstream = await server({
       http(request, response) {
+        if (request.url === '/audio/voices') {
+          response.writeHead(404).end();
+          return;
+        }
         void jsonBody(request).then((value) => {
           body.resolve(value);
           response.end(Buffer.from([1, 2, 3]));

@@ -37,6 +37,32 @@ models may emit deltas only after stop. The HTTP speech models are currently
 marked deprecated by OpenAI, with shutdown January 6, 2027; migrate explicitly
 before then. Provider/model availability can change independently of this library.
 
+### Voice discovery
+
+- **OpenAI:** the official endpoint has no catalog API. `tts-1`/`tts-1-hd`
+  list nine supported voices; `gpt-4o-mini-tts` and unknown/newer models list
+  all thirteen. `alloy` remains the default (OpenAI recommends `marin`/`cedar`
+  for best quality on supported models). Synthesis validates this model-specific list.
+  Custom endpoints try `GET {baseUrl}/audio/voices` with a four-second timeout,
+  accepting a bare array or `{voices: [...]}` of strings or objects with
+  `id`, `name` or `voice`. Discovery failure returns the built-in suggestions;
+  custom voice ids always pass through to synthesis without local rejection.
+- **Deepgram:** `GET /v1/models` lists live `tts` entries by `canonical_name`.
+  The configured Aura model is the default, otherwise `aura-2-thalia-en`;
+  an explicit synthesis voice overrides it. Discovery errors propagate as
+  normalized provider errors, never a partial built-in catalog.
+- **ElevenLabs:** lists the account's live `/v1/voices` catalog.
+- **Cartesia:** lists the live `/voices` catalog with bounded pagination.
+- **MOSS-compat:** discovers voices and the default from `/health`.
+- **AssemblyAI:** transcription only; no synthesis voice catalog.
+
+All discovery paths preserve the endpoint prefix. Lists mark at most one
+`isDefault`. Hosts own catalog caching and can use `resolveVoice` from
+`@flow-voice/server`: it selects a listed requested id, then a listed configured
+id, then `isDefault`, then the first entry. With an empty list it passes through
+the requested/configured id (or returns `undefined`). For custom endpoints whose
+catalog is only suggestions, hosts may instead pass an explicit id directly.
+
 ### OpenAI-compatible REST dictation
 
 Set `options: { sttTransport: 'rest' }` for services offering

@@ -1,9 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { listVoices, synthesize, type TtsAdapter } from './index.js';
+import { listVoices, resolveVoice, synthesize, type TtsAdapter } from './index.js';
 import { createFakeAdapters } from './testing.js';
 import { deferred } from './test-servers.js';
 const format = { kind: 'pcm', encoding: 'pcm_s16le', sampleRate: 16000, channels: 1 } as const;
 describe('synthesis boundary', () => {
+  it('resolves requested, configured, default, first, then empty-catalog passthrough', () => {
+    const voices = [{ id: 'first', name: 'First' }, { id: 'default', name: 'Default', isDefault: true }, { id: 'configured', name: 'Configured' }];
+    expect(resolveVoice({ voices, requested: 'first', configured: 'configured' })).toBe('first');
+    expect(resolveVoice({ voices, requested: 'stale', configured: 'configured' })).toBe('configured');
+    expect(resolveVoice({ voices, requested: 'stale', configured: 'stale' })).toBe('default');
+    expect(resolveVoice({ voices: voices.filter((voice) => !voice.isDefault) })).toBe('first');
+    expect(resolveVoice({ voices: [], requested: 'custom', configured: 'configured' })).toBe('custom');
+    expect(resolveVoice({ voices: [], configured: 'configured' })).toBe('configured');
+    expect(resolveVoice({ voices: [] })).toBeUndefined();
+  });
   it('validates semantic text cap, format and speed before calling provider', async () => {
     let calls = 0;
     const adapter: TtsAdapter = {

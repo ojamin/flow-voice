@@ -3,7 +3,16 @@ import type { ProviderEndpointConfig } from '@flow-voice/core';
 import type { SttAdapter, TtsAdapter } from '../index.js';
 
 import { normalizeSpeechError, speechError as providerError } from '../errors.js';
-import { apiKey, providerUrl, checkedFetch, responseAudio, linkedAbort } from '../transport.js';
+import {
+  apiKey,
+  providerUrl,
+  checkedFetch,
+  responseAudio,
+  responseJson,
+  parseVoices,
+  MAX_VOICES,
+  linkedAbort,
+} from '../transport.js';
 import { nativeSession } from './native-session.js';
 
 /** Deepgram v1: is_final commits a segment; speech_final/UtteranceEnd only delimit utterances.
@@ -75,12 +84,13 @@ export function createDeepgramAdapters(config: ProviderEndpointConfig): {
     },
   };
   const pcmRates = [8000, 16000, 24000, 32000, 48000];
+  const defaultVoice = config.model.startsWith('aura-') ? config.model : 'aura-2-thalia-en';
   const tts: TtsAdapter = {
     id: 'deepgram',
     capabilities: {
       streamingAudio: true,
       streamingText: false,
-      voices: 'fixed',
+      voices: 'list',
       formats: [
         ...pcmRates.map((sampleRate) => ({
           kind: 'pcm' as const,
@@ -95,10 +105,7 @@ export function createDeepgramAdapters(config: ProviderEndpointConfig): {
     async *synthesize(request) {
       if (request.signal.aborted) throw providerError('cancelled');
       const url = providerUrl(config, '/v1/speak', false);
-      url.searchParams.set(
-        'model',
-        request.voice ?? (config.model.startsWith('aura-') ? config.model : 'aura-2-thalia-en'),
-      );
+      url.searchParams.set('model', request.voice ?? defaultVoice);
       if (request.speed !== undefined) {
         if (!Number.isFinite(request.speed) || request.speed <= 0)
           throw providerError('invalid_message');
@@ -137,9 +144,34 @@ export function createDeepgramAdapters(config: ProviderEndpointConfig): {
     },
     async listVoices(signal) {
       if (signal.aborted) throw providerError('cancelled');
-      return ['aura-2-thalia-en', 'aura-2-andromeda-en', 'aura-2-apollo-en', 'aura-asteria-en'].map(
-        (id) => ({ id, name: id, language: 'en' }),
-      );
+      try {
+        const response = await checkedFetch(providerUrl(config, '/v1/models', false), {
+          headers: { Authorization: `Token ${apiKey(config)}` },
+          signal: AbortSignal.any([signal, AbortSignal.timeout(4000)]),
+        });
+        const body = await responseJson(response);
+        if (!Array.isArray(body.tts)) throw providerError('provider_error');
+        if (body.tts.length > MAX_VOICES) throw providerError('limit_exceeded');
+        // https://developers.deepgram.com/reference/manage/models/list
+        const voices = parseVoices(body.tts.map((entry: unknown) => {
+          const value = entry as Record<string, unknown> | null;
+          const language = Array.isArray(value?.languages) ? value.languages[0] : undefined;
+          const name = typeof value?.name === 'string'
+            ? value.name.charAt(0).toUpperCase() + value.name.slice(1)
+            : value?.canonical_name;
+          const details = [value?.architecture, language].filter((v) => typeof v === 'string');
+          return {
+            id: value?.canonical_name,
+            name: details.length ? `${name} (${details.join(', ')})` : name,
+            language,
+          };
+        }));
+        const preferred = voices.find((voice) => voice.id === defaultVoice);
+        if (preferred) preferred.isDefault = true;
+        return voices;
+      } catch (error) {
+        throw Object.assign(new Error(), normalizeSpeechError(error));
+      }
     },
   };
   return { stt, tts };
