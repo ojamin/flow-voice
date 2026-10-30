@@ -116,11 +116,21 @@ async function probeAdapter(adapter: SttAdapter | TtsAdapter, kind: 'stt' | 'tts
   if (result.stt && !result.stt.live && liveMissing) result.stt.live = false;
   // Discovery is optional and bounded, including the response body before parsing.
   const modelBase = baseUrl ?? (config.provider === 'openai' ? 'https://api.openai.com/v1' : undefined);
-  if (modelBase) {
+  // Some servers serve speech at the root but list models only under /v1.
+  const modelBases = !modelBase ? [] : /\/v1$/.test(modelBase) ? [modelBase] : [modelBase, `${modelBase}/v1`];
+  for (const base of modelBases) {
+    let status: number | undefined;
+    const recording: SpeechTransportOptions = {
+      fetch: async (url, init) => {
+        const response = await (transport.fetch ?? fetch)(url, init);
+        status = response.status;
+        return response;
+      },
+    };
     try {
-      const response = await checkedFetch(endpoint(modelBase, 'models'), {
+      const response = await checkedFetch(endpoint(base, 'models'), {
         headers: authHeaders(config.apiKey), signal: AbortSignal.any([signal, AbortSignal.timeout(4000)]),
-      }, transport);
+      }, recording);
       const body = await responseJson(response);
       if (Array.isArray(body.data)) {
         result.models = [...new Set(body.data.flatMap((entry: unknown) => {
@@ -128,7 +138,11 @@ async function probeAdapter(adapter: SttAdapter | TtsAdapter, kind: 'stt' | 'tts
           return typeof id === 'string' && id.length > 0 && id.length <= 200 ? [id] : [];
         }))].slice(0, 1000);
       }
-    } catch { /* A catalog failure must not turn a verified endpoint into a failed Test. */ }
+      break;
+    } catch {
+      // A catalog failure must not turn a verified endpoint into a failed Test; only a 404 tries /v1.
+      if (status !== 404) break;
+    }
   }
   return result;
 }

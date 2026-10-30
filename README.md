@@ -285,11 +285,12 @@ Verified results contain `{ tts?: { ok: true, voices }, stt?: { ok: true, verifi
 `stt.live: true` means a live handshake succeeded; `false` means an unavailable
 realtime endpoint fell back to verified REST. Explicit REST selections and custom
 adapters without a live handshake leave it unspecified. Native adapter probes also
-try `GET {base}/models` after verification, accepting OpenAI-compatible
+try `GET {base}/models` after verification (then `{base}/v1/models` once if that
+returns 404, without changing the base URL), accepting OpenAI-compatible
 `{ data: [{ id }] }`. Optional `models` contains at most 1000 unique, nonempty
 string ids (at most 200 characters each); failed/malformed/oversized discovery
-leaves it absent and does not fail a verified Test. Discovery has a four-second
-budget within the remaining probe timeout.
+leaves it absent and does not fail a verified Test. Each discovery request has a
+four-second budget within the remaining probe timeout.
 
 If a provider call returns 404 and the configured base does not end in `/v1`,
 the probe retries once with `/v1` appended. A successful retry includes `baseUrl`

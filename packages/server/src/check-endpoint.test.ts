@@ -19,7 +19,7 @@ it('probes real TTS audio with the default voice/format, then cancels after the 
     requests.push(request.url!);
     if (request.url === '/audio/voices') {
       response.end(JSON.stringify({ voices: [{ id: 'nova', name: 'Nova' }] }));
-    } else if (request.url === '/models') {
+    } else if (request.url?.endsWith('/models')) {
       response.writeHead(404).end();
     } else {
       request.on('data', (data) => { requestBody += data; });
@@ -35,7 +35,7 @@ it('probes real TTS audio with the default voice/format, then cancels after the 
   const result = await checkSpeechEndpoint({ tts: tts!, signal: signal() });
   await closed.promise;
   expect(result).toEqual({ tts: { ok: true, voices: [{ id: 'nova', name: 'Nova', isDefault: true }] } });
-  expect(requests).toEqual(['/audio/voices', '/audio/speech', '/models']);
+  expect(requests).toEqual(['/audio/voices', '/audio/speech', '/models', '/v1/models']);
   expect(JSON.parse(requestBody)).toMatchObject({ input: 'Test.', voice: 'nova', model: 'configured-model', response_format: 'pcm' });
 });
 

@@ -200,3 +200,23 @@ it.each(['openai', 'moss-compat', 'deepgram', 'cartesia', 'elevenlabs'])('uses t
   expect(result.models).toEqual(['model']);
   expect(requests).toHaveLength(3);
 });
+
+it.each([
+  [404, ['/audio/transcriptions', '/models', '/v1/models'], [model]],
+  [500, ['/audio/transcriptions', '/models'], undefined],
+] as const)('lists models under /v1 when a root-served endpoint returns %s for /models', async (status, paths, models) => {
+  forbidGlobals();
+  const requests: string[] = [];
+  const fetch: typeof globalThis.fetch = async (url) => {
+    const path = String(url).slice(baseUrl.length);
+    requests.push(path);
+    if (path === '/models') return new Response(null, { status });
+    if (path === '/v1/models') return Response.json({ data: [{ id: model }] });
+    return Response.json({ text: '' });
+  };
+  const { stt } = createAdapters({ provider: 'moss-compat', model, baseUrl, options: { sttTransport: 'rest' } }, { fetch });
+  const result = await checkSpeechEndpoint({ stt, signal: signal() });
+  expect(result.models).toEqual(models);
+  expect(result.baseUrl).toBeUndefined();
+  expect(requests).toEqual(paths);
+});
