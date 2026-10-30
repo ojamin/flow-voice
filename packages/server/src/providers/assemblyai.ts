@@ -1,5 +1,7 @@
 import { pcmInputSchema } from '@flow-voice/core';
 import type { ProviderEndpointConfig, SpeechErrorCode } from '@flow-voice/core';
+import type { SpeechTransportOptions } from '../transport.js';
+import { registerEndpointAdapters } from '../check-endpoint.js';
 import type { SttAdapter, SttEvent } from '../index.js';
 import { apiKey, providerUrl } from '../transport.js';
 import { nativeSession } from './native-session.js';
@@ -19,8 +21,8 @@ function closeCode(code: number, reason: string): SpeechErrorCode {
  * https://www.assemblyai.com/docs/api-reference/streaming/realtime
  * https://www.assemblyai.com/docs/streaming/common-session-errors-and-closures
  */
-export function createAssemblyAIAdapters(config: ProviderEndpointConfig): { stt: SttAdapter } {
-  return {
+export function createAssemblyAIAdapters(config: ProviderEndpointConfig, transportOptions: SpeechTransportOptions = {}): { stt: SttAdapter } {
+  return registerEndpointAdapters(config, transportOptions, createAssemblyAIAdapters, {
     stt: {
       id: 'assemblyai',
       capabilities: {
@@ -57,6 +59,7 @@ export function createAssemblyAIAdapters(config: ProviderEndpointConfig): { stt:
           pending = undefined;
         }
         return nativeSession({
+          transport: transportOptions,
           url,
           authorization: apiKey(config),
           signal,
@@ -101,5 +104,5 @@ export function createAssemblyAIAdapters(config: ProviderEndpointConfig): { stt:
         });
       },
     },
-  };
+  });
 }

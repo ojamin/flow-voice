@@ -19,6 +19,8 @@ it('probes real TTS audio with the default voice/format, then cancels after the 
     requests.push(request.url!);
     if (request.url === '/audio/voices') {
       response.end(JSON.stringify({ voices: [{ id: 'nova', name: 'Nova' }] }));
+    } else if (request.url === '/models') {
+      response.writeHead(404).end();
     } else {
       request.on('data', (data) => { requestBody += data; });
       request.on('end', () => {
@@ -33,7 +35,7 @@ it('probes real TTS audio with the default voice/format, then cancels after the 
   const result = await checkSpeechEndpoint({ tts: tts!, signal: signal() });
   await closed.promise;
   expect(result).toEqual({ tts: { ok: true, voices: [{ id: 'nova', name: 'Nova', isDefault: true }] } });
-  expect(requests).toEqual(['/audio/voices', '/audio/speech']);
+  expect(requests).toEqual(['/audio/voices', '/audio/speech', '/models']);
   expect(JSON.parse(requestBody)).toMatchObject({ input: 'Test.', voice: 'nova', model: 'configured-model', response_format: 'pcm' });
 });
 
@@ -52,7 +54,7 @@ it.each(['openai', 'deepgram', 'assemblyai', 'elevenlabs', 'moss-compat'])('wait
   } });
   cleanups.push(() => server.close());
   const { stt } = createAdapters({ provider, model: '', apiKey: secret, baseUrl: server.url });
-  await expect(checkSpeechEndpoint({ stt: stt!, signal: signal() })).resolves.toEqual({ stt: { ok: true, verified: true } });
+  await expect(checkSpeechEndpoint({ stt: stt!, signal: signal() })).resolves.toEqual({ stt: { ok: true, verified: true, live: true } });
   await closed;
   // OpenAI and MOSS send setup JSON only; no binary or base64 audio/commit frames.
   expect(frames.every((frame) => typeof frame === 'object' && !Buffer.isBuffer(frame) &&
@@ -77,8 +79,8 @@ it.each([false, true])('verifies REST transcription with a silent WAV (realtime 
   const { stt } = createAdapters({ provider: 'openai', model: 'transcribe-model', apiKey: secret,
     baseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
     options: { sttTransport: fallback ? 'realtime' : 'rest' } });
-  await expect(checkSpeechEndpoint({ stt: stt!, signal: signal() })).resolves.toEqual({ stt: { ok: true, verified: true } });
-  expect(requests).toEqual(['/audio/transcriptions']);
+  await expect(checkSpeechEndpoint({ stt: stt!, signal: signal() })).resolves.toEqual({ stt: { ok: true, verified: true, ...(fallback ? { live: false } : {}) } });
+  expect(requests).toEqual(['/audio/transcriptions', '/models']);
   const wav = bytes.indexOf(Buffer.from('RIFF'));
   expect(wav).toBeGreaterThan(0);
   expect(bytes.subarray(wav + 44, wav + 44 + 960)).toEqual(Buffer.alloc(960));
@@ -89,15 +91,23 @@ it.each(['tts', 'stt'] as const)('rejects a real %s HTTP 401 without leaking pro
   const server = await localServer({ http(_request, response) { response.writeHead(401).end(secret); } });
   cleanups.push(() => server.close());
   const adapters = createAdapters({ provider: 'openai', model: '', apiKey: secret, baseUrl: server.url, options: { sttTransport: 'rest' } });
+  if (kind === 'tts') {
+    await expect(checkSpeechEndpoint({ tts: adapters.tts, signal: signal() })).resolves.toEqual({ voiceError: "Couldn't load voices from this server" });
+    return;
+  }
   await expect(checkSpeechEndpoint({ [kind]: adapters[kind], signal: signal() })).rejects.toMatchObject({
     code: 'unauthorized', message: 'Speech provider authentication failed.',
   });
 });
 
-it.each(['tts', 'stt'] as const)('rejects unreachable %s endpoints', async (kind) => {
+it.each(['tts', 'stt'] as const)('reports unreachable %s endpoints', async (kind) => {
   const server = await localServer({});
   await server.close();
   const adapters = createAdapters({ provider: 'openai', model: '', apiKey: secret, baseUrl: server.url });
+  if (kind === 'tts') {
+    await expect(checkSpeechEndpoint({ tts: adapters.tts, signal: signal() })).resolves.toEqual({ voiceError: "Couldn't load voices from this server" });
+    return;
+  }
   await expect(checkSpeechEndpoint({ [kind]: adapters[kind], signal: signal() })).rejects.toMatchObject({ code: 'transport_error' });
 });
 

@@ -2,10 +2,11 @@ import type { ProviderEndpointConfig } from '@flow-voice/core';
 import type { SttAdapter, TtsAdapter } from './index.js';
 import { speechError } from './errors.js';
 import { nativeProviderFactories } from './providers/registry.js';
+import type { SpeechTransportOptions } from './transport.js';
 
-type Factory = (config: ProviderEndpointConfig) => { stt?: SttAdapter; tts?: TtsAdapter };
+type Factory = (config: ProviderEndpointConfig, options?: SpeechTransportOptions) => { stt?: SttAdapter; tts?: TtsAdapter };
 const providers: Record<string, Factory> = nativeProviderFactories;
-export function createAdapters(config: ProviderEndpointConfig): {
+export function createAdapters(config: ProviderEndpointConfig, options: SpeechTransportOptions = {}): {
   stt?: SttAdapter;
   tts?: TtsAdapter;
 } {
@@ -29,5 +30,5 @@ export function createAdapters(config: ProviderEndpointConfig): {
     )
       throw speechError('invalid_message');
   }
-  return factory(config);
+  return factory(config, options);
 }

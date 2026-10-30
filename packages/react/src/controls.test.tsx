@@ -212,14 +212,14 @@ describe.each([undefined, slots])('native controls and slot adapter %s', (adapte
         slots={adapter}
       />,
     );
-    await user.clear(screen.getByRole('textbox', { name: 'Model' }));
-    await user.type(screen.getByRole('textbox', { name: 'Model' }), ' new-model ');
+    await user.clear(screen.getByRole('combobox', { name: 'Model' }));
+    await user.type(screen.getByRole('combobox', { name: 'Model' }), ' new-model ');
     await user.dblClick(screen.getByRole('button', { name: 'Save text-to-speech' }));
     expect(onSave).toHaveBeenCalledOnce();
     expect(onSave.mock.calls[0]?.[0]).toMatchObject({ model: 'new-model', baseUrl: null });
     expect(
-      (screen.getByRole('textbox', { name: 'Model' }) as HTMLInputElement).disabled ||
-        screen.getByRole('textbox', { name: 'Model' }).closest('fieldset')?.disabled,
+      (screen.getByRole('combobox', { name: 'Model' }) as HTMLInputElement).disabled ||
+        screen.getByRole('combobox', { name: 'Model' }).closest('fieldset')?.disabled,
     ).toBe(true);
     await act(async () => done.resolve({ ...endpoint, model: 'new-model' }));
     expect(
@@ -296,7 +296,7 @@ it('does not attach stale test success, voices or failure to an edited endpoint'
     baseUrl: null,
     options: endpoint.options,
   });
-  await user.type(screen.getByRole('textbox', { name: 'Model' }), '-edited');
+  await user.type(screen.getByRole('combobox', { name: 'Model' }), '-edited');
   await act(async () => test.resolve({ ok: true, voices: [{ id: 'stale', name: 'Stale voice' }] }));
   expect(screen.queryByText(/Connection successful/)).toBeNull();
   expect(screen.queryByRole('option', { name: 'Stale voice' })).toBeNull();
@@ -351,7 +351,7 @@ it('requires a new key on identity change, adapts server field errors and permit
   await user.click(screen.getByRole('button', { name: 'Save text-to-speech' }));
   expect(onSave).not.toHaveBeenCalled();
   expect(
-    screen.getByText('Enter a new API key when changing the provider or base URL.'),
+    screen.getByText('Enter a new API key when changing the provider or endpoint origin.'),
   ).toBeTruthy();
   expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Replace key' }));
   await user.click(screen.getByRole('button', { name: 'Replace key' }));
@@ -572,7 +572,7 @@ it('keeps unsaved STT options, tests them without a write and resets the edited 
       onTest={onTest}
     />,
   );
-  await user.type(screen.getByRole('textbox', { name: 'Model' }), ' whisper-1 ');
+  await user.type(screen.getByRole('combobox', { name: 'Model' }), ' whisper-1 ');
   await user.type(screen.getByRole('textbox', { name: 'Default language (optional)' }), ' en ');
   await user.selectOptions(screen.getByRole('combobox', { name: 'Connection' }), 'rest');
   await user.click(screen.getByRole('button', { name: 'Test connection' }));
@@ -585,7 +585,7 @@ it('keeps unsaved STT options, tests them without a write and resets the edited 
   expect(onSave).not.toHaveBeenCalled();
   expect(screen.getByRole('status').textContent).toBe('Connection successful.');
   await user.click(screen.getByRole('button', { name: 'Reset' }));
-  expect((screen.getByRole('textbox', { name: 'Model' }) as HTMLInputElement).value).toBe('');
+  expect((screen.getByRole('combobox', { name: 'Model' }) as HTMLInputElement).value).toBe('');
 });
 it('maps canonical endpoint validation issues to provider, model and speed fields', async () => {
   const user = userEvent.setup();
@@ -595,7 +595,7 @@ it('maps canonical endpoint validation issues to provider, model and speed field
   await user.clear(screen.getByRole('spinbutton', { name: 'Default speed' }));
   await user.click(screen.getByRole('button', { name: 'Test connection' }));
   expect(screen.getByRole('combobox', { name: 'Provider' }).getAttribute('aria-invalid')).toBe('true');
-  expect(screen.getByRole('textbox', { name: 'Model' }).getAttribute('aria-invalid')).toBe('true');
+  expect(screen.getByRole('combobox', { name: 'Model' }).getAttribute('aria-invalid')).toBe('true');
   expect(screen.getByRole('spinbutton', { name: 'Default speed' }).getAttribute('aria-invalid')).toBe('true');
   expect(screen.getByText('Choose a provider.')).toBeTruthy();
   expect(screen.getByText('Enter a model.')).toBeTruthy();
@@ -625,7 +625,7 @@ it('shows the concrete OpenAI Connection option only there and never sends it to
   await user.selectOptions(screen.getByRole('combobox', { name: 'Connection' }), 'rest');
   await user.selectOptions(screen.getByRole('combobox', { name: 'Provider' }), 'deepgram');
   expect(screen.queryByRole('combobox', { name: 'Connection' })).toBeNull();
-  await user.type(screen.getByRole('textbox', { name: 'Model' }), 'nova-3');
+  await user.type(screen.getByRole('combobox', { name: 'Model' }), 'nova-3');
   await user.click(screen.getByRole('button', { name: 'Test connection' }));
   expect(onTest).toHaveBeenCalledWith({
     provider: 'deepgram',

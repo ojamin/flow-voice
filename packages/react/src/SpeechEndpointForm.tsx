@@ -13,13 +13,23 @@ import type { SpeechControlAppearance } from './controls.js';
 import { VoiceSelect } from './VoiceSelect.js';
 import type { VoiceChoiceState } from './VoiceSelect.js';
 
+/** Accepts a server SpeechEndpointCheck verbatim, or the legacy host projection. */
+export interface SpeechEndpointTestResult {
+  ok?: true;
+  voices?: readonly Voice[];
+  tts?: { ok: true; voices: readonly Voice[] };
+  stt?: { ok: true; verified: true; live?: boolean };
+  models?: string[];
+  baseUrl?: string;
+  voiceError?: string;
+}
 export interface SpeechEndpointFormProps extends SpeechControlAppearance {
   kind: SpeechKind;
   initial: SpeechEndpointView | null;
   providers: readonly { id: string; name: string }[];
   choices?: VoiceChoiceState;
   onSave(value: SpeechEndpointWrite): Promise<SpeechEndpointView | null>;
-  onTest(value: SpeechEndpointDraft): Promise<{ ok: true; voices?: readonly Voice[] }>;
+  onTest(value: SpeechEndpointDraft): Promise<SpeechEndpointTestResult>;
   onErrorFields?(error: unknown): Readonly<Record<string, string>>;
   labels?: { save?: string; test?: string; clear?: string; reset?: string };
 }
@@ -52,6 +62,7 @@ export function SpeechEndpointForm({
   const [errors, setErrors] = useState<Readonly<Record<string, string>>>({});
   const [status, setStatus] = useState('');
   const [testedChoices, setTestedChoices] = useState<VoiceChoiceState>();
+  const [testedModels, setTestedModels] = useState<string[]>([]);
   const busy = useRef(false);
   const form = useRef<HTMLFormElement>(null);
   // Every edit invalidates the test's identity, even when the fields are changed back.
@@ -63,6 +74,7 @@ export function SpeechEndpointForm({
     setErrors({});
     setStatus('');
     setTestedChoices(undefined);
+    setTestedModels([]);
   }, [initial, kind]);
   useEffect(
     () => () => {
@@ -85,6 +97,7 @@ export function SpeechEndpointForm({
     setStatus('');
     setErrors({});
     setTestedChoices(undefined);
+    if (!('model' in patch)) setTestedModels([]);
   };
   const reset = () => {
     revision.current++;
@@ -92,6 +105,7 @@ export function SpeechEndpointForm({
     setErrors({});
     setStatus('');
     setTestedChoices(undefined);
+    setTestedModels([]);
   };
   const field = (
     name: string,
@@ -131,7 +145,7 @@ export function SpeechEndpointForm({
       delete options.sttTransport;
       if (draft.language.trim()) options.language = draft.language.trim();
       if (
-        draft.provider === 'openai' &&
+        (draft.provider === 'openai' || draft.provider === 'moss-compat') &&
         (draft.sttTransport === 'realtime' || draft.sttTransport === 'rest')
       )
         options.sttTransport = draft.sttTransport;
@@ -167,18 +181,35 @@ export function SpeechEndpointForm({
       if (action === 'test') {
         const result = await onTest(value);
         if (revision.current !== attempt) return;
+        if (result.voiceError) {
+          setErrors({ form: result.voiceError });
+          setTestedChoices({ voices: [], status: 'error' });
+          setTestedModels([]);
+          return;
+        }
+        const voices = result.tts?.voices ?? result.voices;
+        setTestedModels(result.models ?? []);
+        setDraft((current) => ({ ...current,
+          ...(result.baseUrl ? { baseUrl: result.baseUrl } : {}),
+          ...(kind === 'stt' && result.stt?.live === false ? { sttTransport: 'rest' } : {}),
+        }));
         setStatus(
-          kind === 'tts'
-            ? `Connection successful. ${result.voices?.length ?? 0} voices available.`
+          [kind === 'tts'
+            ? `Connection successful. ${voices?.length ?? 0} voices available.`
             : 'Connection successful.',
+          result.baseUrl ? 'Added /v1 to the endpoint address.' : '',
+          kind === 'stt' && result.stt?.live === false
+            ? "This server doesn't support live; using transcribe-after-pauses" : '',
+          ].filter(Boolean).join(' '),
         );
-        if (result.voices) setTestedChoices({ voices: result.voices, status: 'ready' });
+        if (voices) setTestedChoices({ voices, status: 'ready' });
       } else {
         const saved = await onSave(action === 'clear' ? { clear: true } : value);
         if (revision.current !== attempt) return;
         setBaseline(saved);
         setDraft(editEndpoint(saved, providers[0]?.id ?? ''));
         setTestedChoices(undefined);
+        setTestedModels([]);
         setStatus(
           action === 'clear'
             ? 'Configuration cleared. Speech is disabled for this endpoint.'
@@ -186,8 +217,13 @@ export function SpeechEndpointForm({
         );
       }
     } catch (error) {
-      if (revision.current === attempt)
+      if (revision.current === attempt) {
         setErrors({ ...onErrorFields?.(error), form: errorMessage(error) });
+        if (action === 'test') {
+          setTestedModels([]);
+          setTestedChoices({ voices: [], status: 'error' });
+        }
+      }
     } finally {
       busy.current = false;
       setPending(null);
@@ -239,9 +275,13 @@ export function SpeechEndpointForm({
         </Wrapper>
         {field('model', 'Model', {
           value: draft.model,
+          list: `${id}-models`,
           maxLength: 200,
           onChange: (event) => update({ model: event.target.value }),
         })}
+        <datalist id={`${id}-models`}>
+          {testedModels.map((model) => <option key={model} value={model} />)}
+        </datalist>
         {field(
           'baseUrl',
           'Base URL (optional)',
@@ -274,7 +314,7 @@ export function SpeechEndpointForm({
               value: draft.apiKey,
               onChange: (event) => update({ apiKey: event.target.value }),
             },
-            'Write-only. Saved keys are never displayed. A new API key is required when changing the provider or base URL; otherwise leaving this blank preserves the saved key.',
+            'Write-only. Saved keys are never displayed. Local endpoints need no key. A new API key is required when changing the provider or endpoint origin; path-only changes preserve the saved key.',
           )}
         {!draft.replacing && errors.apiKey && (
           <p id={`${id}-apiKey-error`} role="alert">
@@ -294,7 +334,7 @@ export function SpeechEndpointForm({
               },
               'Language code, for example en or fr. Leave blank for automatic detection.',
             )}
-            {draft.provider === 'openai' && (
+            {(draft.provider === 'openai' || draft.provider === 'moss-compat') && (
               <Wrapper
                 id={`${id}-transport`}
                 label="Connection"

@@ -58,14 +58,12 @@ describe('native provider protocols on loopback servers', () => {
     expect(String(fetch.mock.calls[0]![0])).toBe('https://speech.example/prefix/v1/audio/voices');
     expect(fetch.mock.calls[0]![1]).toMatchObject({ headers: { Authorization: 'Bearer secret' }, redirect: 'error', signal: expect.any(AbortSignal) });
   });
-  it('OpenAI compatible discovery falls back on 404, without rejecting server-specific synthesis voices', async () => {
+  it('OpenAI compatible discovery fails on 404, without rejecting server-specific synthesis voices', async () => {
     const fetch = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(new Response(null, { status: 404 }))
       .mockResolvedValueOnce(new Response(new Uint8Array([1, 2])));
     const adapter = createAdapters({ provider: 'openai', model: 'tts-1', baseUrl: 'https://speech.example/prefix/v1' }).tts!;
-    const voices = await adapter.listVoices!(new AbortController().signal);
-    expect(voices).toHaveLength(9);
-    expect(voices.find((voice) => voice.id === 'alloy')?.isDefault).toBe(true);
+    await expect(adapter.listVoices!(new AbortController().signal)).rejects.toMatchObject({ code: 'provider_error' });
     for await (const _chunk of synthesizeChunks(adapter, { text: 'hello', voice: 'af_bella', format: pcm24, signal: new AbortController().signal })) { /* drain */ }
     expect(String(fetch.mock.calls[1]![0])).toBe('https://speech.example/prefix/v1/audio/speech');
     expect(JSON.parse(fetch.mock.calls[1]![1]!.body as string).voice).toBe('af_bella');
@@ -73,7 +71,7 @@ describe('native provider protocols on loopback servers', () => {
   it('OpenAI compatible discovery respects limits and cancellation', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ voices: Array.from({ length: 1001 }, () => 'v') }));
     const adapter = createAdapters({ provider: 'openai', model: '', baseUrl: 'https://speech.example/v1' }).tts!;
-    expect(await adapter.listVoices!(new AbortController().signal)).toHaveLength(13);
+    await expect(adapter.listVoices!(new AbortController().signal)).rejects.toMatchObject({ code: 'provider_error' });
     const abort = new AbortController();
     abort.abort();
     await expect(listVoices({ adapter, signal: abort.signal })).rejects.toMatchObject({ code: 'cancelled' });
@@ -404,7 +402,7 @@ describe('native provider protocols on loopback servers', () => {
   it.each([
     ['audio/mpeg', 'mp3'],
     ['audio/ogg; codecs=opus', 'opus'],
-  ])('OpenAI preserves encoded %s stream and fallback voice suggestions', async (mimeType, responseFormat) => {
+  ])('OpenAI preserves encoded %s stream without fallback voice suggestions', async (mimeType, responseFormat) => {
     const body = deferred<Record<string, unknown>>();
     const upstream = await server({
       http(request, response) {
@@ -440,11 +438,7 @@ describe('native provider protocols on loopback servers', () => {
       voice: 'coral',
       model: 'test-tts',
     });
-    expect(
-      (await listVoices({ adapter, signal: new AbortController().signal })).map(
-        (voice) => voice.id,
-      ),
-    ).toContain('cedar');
+    await expect(listVoices({ adapter, signal: new AbortController().signal })).rejects.toMatchObject({ code: 'provider_error' });
   });
   it.each([401, 429, 503])('redacts HTTP %i responses', async (status) => {
     const upstream = await server({

@@ -2,9 +2,11 @@ import type { SttEvent, SttSession } from '../index.js';
 import { DEFAULT_LIMITS } from '@flow-voice/core';
 import { normalizeSpeechError, speechError } from '../errors.js';
 import { jsonFrame, openSpeechSocket } from '../transport.js';
+import type { SpeechTransportOptions } from '../transport.js';
 
 /** Protocol-specific state stays in the adapter; common bounded readiness/finalization lifecycle. */
 export function websocketStt(options: {
+  transport?: SpeechTransportOptions;
   url: URL;
   headers: Record<string, string>;
   signal: AbortSignal;

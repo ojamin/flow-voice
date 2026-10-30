@@ -3,9 +3,11 @@ import type { SpeechErrorCode } from '@flow-voice/core';
 import type { SttEvent, SttSession } from '../index.js';
 import { normalizeSpeechError, speechError } from '../errors.js';
 import { BoundedQueue, jsonFrame, openSpeechSocket } from '../transport.js';
+import type { SpeechTransportOptions } from '../transport.js';
 
 /** Native framing/readiness for Deepgram and AssemblyAI; transport owns socket lifecycle. */
 export function nativeSession(options: {
+  transport?: SpeechTransportOptions;
   url: URL;
   authorization: string;
   signal: AbortSignal;
@@ -41,6 +43,7 @@ export function nativeSession(options: {
   });
   const events = new BoundedQueue<SttEvent>(128, () => finish('cancelled'));
   const socket = openSpeechSocket({
+    transport: options.transport,
     url: options.url,
     headers: { Authorization: options.authorization },
     signal: options.signal,

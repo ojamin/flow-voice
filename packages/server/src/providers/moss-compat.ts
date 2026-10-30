@@ -3,14 +3,18 @@ import { audioFormatFromHeaders } from '@flow-voice/core';
 import { audioFromResponse } from '../audio-stream.js';
 import type { SttAdapter, SttEvent, TtsAdapter } from '../index.js';
 import { speechError } from '../errors.js';
-import { authHeaders, checkedFetch, endpoint, responseJson } from '../transport.js';
+import { authHeaders, speechTransport, endpoint, responseJson } from '../transport.js';
 import { websocketStt } from './session.js';
+import { restTranscription } from './openai-rest.js';
+import type { SpeechTransportOptions } from '../transport.js';
+import { registerEndpointAdapters } from '../check-endpoint.js';
 
 /** Exact speech gateway wire fields; endpoint prefixes are additionally supported. */
-export function createMossCompatAdapters(config: ProviderEndpointConfig): {
+export function createMossCompatAdapters(config: ProviderEndpointConfig, transportOptions: SpeechTransportOptions = {}): {
   stt: SttAdapter;
   tts: TtsAdapter;
 } {
+  const { checkedFetch } = speechTransport(transportOptions);
   if (!config.baseUrl) throw speechError('not_configured');
   const base = config.baseUrl,
     headers = authHeaders(config.apiKey);
@@ -62,19 +66,32 @@ export function createMossCompatAdapters(config: ProviderEndpointConfig): {
       defaultVoice: defaultVoice?.id,
     };
   }
-  return {
+  const transport = config.options?.sttTransport ?? 'realtime';
+  if (transport !== 'rest' && transport !== 'realtime') throw speechError('invalid_message');
+  const capabilities = { live: true as const, interim: transport !== 'rest', sampleRates: [16000] };
+  return registerEndpointAdapters(config, transportOptions, createMossCompatAdapters, {
     stt: {
       id: 'moss-compat',
-      capabilities: { live: true, interim: true, sampleRates: [16000] },
-      open({ format, signal }) {
+      capabilities,
+      open({ format, language, signal }) {
         if (format.encoding !== 'pcm_s16le' || format.sampleRate !== 16000 || format.channels !== 1)
           throw speechError('unsupported');
-        const url = endpoint(base, 'v1/realtime/transcriptions');
+        const rest = () => {
+          capabilities.interim = false;
+          return restTranscription({
+            transport: transportOptions, url: endpoint(base, 'audio/transcriptions'), headers,
+            model: config.model || 'whisper-1', language, rate: format.sampleRate, signal, timeoutMs: 10_000,
+          });
+        };
+        if (transport === 'rest') return rest();
+        const url = endpoint(base, /\/v1\/?$/.test(base) ? 'realtime/transcriptions' : 'v1/realtime/transcriptions');
         url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
         let committed = '',
           lastRevision = -1,
           ready = false;
         return websocketStt({
+          transport: transportOptions,
+          fallback: rest,
           url,
           headers,
           signal,
@@ -156,5 +173,5 @@ export function createMossCompatAdapters(config: ProviderEndpointConfig): {
         return audioFromResponse(response, format, request.signal);
       },
     },
-  };
+  });
 }

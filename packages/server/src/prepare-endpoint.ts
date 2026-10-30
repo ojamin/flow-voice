@@ -2,8 +2,9 @@ import { validateSpeechEndpointDraft } from '@flow-voice/core';
 import type { SpeechEndpointDraft, SpeechKind } from '@flow-voice/core';
 import { createAdapters } from './registry.js';
 import { speechError } from './errors.js';
+import type { SpeechTransportOptions } from './transport.js';
 
-export interface PrepareSpeechEndpointOptions {
+export interface PrepareSpeechEndpointOptions extends SpeechTransportOptions {
   kind: SpeechKind;
   draft: SpeechEndpointDraft;
   apiKey?: string;
@@ -19,7 +20,7 @@ export function prepareSpeechEndpoint(options: PrepareSpeechEndpointOptions): Re
   const adapters = (options.createAdapters ?? createAdapters)({
     provider: draft.provider, model: draft.model, baseUrl: draft.baseUrl ?? undefined,
     apiKey: options.apiKey ?? draft.apiKey, options: { ...draft.options },
-  });
+  }, { fetch: options.fetch, webSocket: options.webSocket });
   if (!adapters[options.kind]) throw speechError('unsupported');
   return adapters;
 }

@@ -3,7 +3,7 @@ import type { SttAdapter, TtsAdapter } from '../index.js';
 import { speechError } from '../errors.js';
 import {
   authHeaders,
-  checkedFetch,
+  speechTransport,
   endpoint,
   parseVoices,
   responseJsonValue,
@@ -11,6 +11,8 @@ import {
 import { websocketStt } from './session.js';
 import { restTranscription } from './openai-rest.js';
 import { requestedHttpSynthesis } from '../audio-stream.js';
+import type { SpeechTransportOptions } from '../transport.js';
+import { registerEndpointAdapters } from '../check-endpoint.js';
 
 const pcm: AudioFormat = { kind: 'pcm', encoding: 'pcm_s16le', sampleRate: 24000, channels: 1 };
 const formats: AudioFormat[] = [
@@ -34,10 +36,11 @@ const voices = [
   'cedar',
 ];
 /** OpenAI native GA transcription session, verified against realtime-transcription guide 2026-10-28. */
-export function createOpenAIAdapters(config: ProviderEndpointConfig): {
+export function createOpenAIAdapters(config: ProviderEndpointConfig, transportOptions: SpeechTransportOptions = {}): {
   stt: SttAdapter;
   tts: TtsAdapter;
 } {
+  const { checkedFetch } = speechTransport(transportOptions);
   const base = config.baseUrl ?? 'https://api.openai.com/v1';
   const customEndpoint = new URL(base).hostname !== 'api.openai.com';
   const model = config.model || 'gpt-4o-mini-tts';
@@ -59,7 +62,7 @@ export function createOpenAIAdapters(config: ProviderEndpointConfig): {
   )
     throw speechError('invalid_message');
   const capabilities = { live: true as const, interim: transport !== 'rest', sampleRates: [24000] };
-  return {
+  return registerEndpointAdapters(config, transportOptions, createOpenAIAdapters, {
     stt: {
       id: 'openai',
       capabilities,
@@ -69,6 +72,7 @@ export function createOpenAIAdapters(config: ProviderEndpointConfig): {
         const rest = () => {
           capabilities.interim = false;
           return restTranscription({
+            transport: transportOptions,
             url: endpoint(base, 'audio/transcriptions'), headers,
             model: config.model || 'whisper-1', language, rate: format.sampleRate, signal, timeoutMs,
           });
@@ -81,6 +85,7 @@ export function createOpenAIAdapters(config: ProviderEndpointConfig): {
           tentative = '',
           completed = false;
         return websocketStt({
+          transport: transportOptions,
           url,
           headers,
           signal,
@@ -153,30 +158,25 @@ export function createOpenAIAdapters(config: ProviderEndpointConfig): {
       async listVoices(signal) {
         signal.throwIfAborted();
         if (customEndpoint) {
-          try {
-            const response = await checkedFetch(endpoint(base, 'audio/voices'), {
-              headers,
-              signal: AbortSignal.any([signal, AbortSignal.timeout(4000)]),
-            });
-            const body = await responseJsonValue(response);
-            const entries = Array.isArray(body)
-              ? body
-              : (body as { voices?: unknown } | null)?.voices;
-            const discovered = parseVoices(Array.isArray(entries)
-              ? entries.map((entry: unknown) => {
-                  if (typeof entry === 'string') return { id: entry, name: entry };
-                  const value = entry as Record<string, unknown> | null;
-                  const id = value?.id ?? value?.name ?? value?.voice;
-                  return { ...value, id, name: value?.name ?? id };
-                })
-              : entries);
-            const preferred = discovered.find((voice) => voice.id === 'alloy') ?? discovered[0];
-            if (preferred) preferred.isDefault = true;
-            return discovered;
-          } catch {
-            signal.throwIfAborted();
-            // Compatible servers need not expose discovery; these are suggestions only.
-          }
+          const response = await checkedFetch(endpoint(base, 'audio/voices'), {
+            headers,
+            signal: AbortSignal.any([signal, AbortSignal.timeout(4000)]),
+          });
+          const body = await responseJsonValue(response);
+          const entries = Array.isArray(body)
+            ? body
+            : (body as { voices?: unknown } | null)?.voices;
+          const discovered = parseVoices(Array.isArray(entries)
+            ? entries.map((entry: unknown) => {
+                if (typeof entry === 'string') return { id: entry, name: entry };
+                const value = entry as Record<string, unknown> | null;
+                const id = value?.id ?? value?.name ?? value?.voice;
+                return { ...value, id, name: value?.name ?? id };
+              })
+            : entries);
+          const preferred = discovered.find((voice) => voice.id === 'alloy') ?? discovered[0];
+          if (preferred) preferred.isDefault = true;
+          return discovered;
         }
         return builtInVoices();
       },
@@ -217,5 +217,5 @@ export function createOpenAIAdapters(config: ProviderEndpointConfig): {
         return response;
       }),
     },
-  };
+  });
 }

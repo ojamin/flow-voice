@@ -7,11 +7,13 @@ import { normalizeSpeechError, speechError as providerError } from '../errors.js
 import {
   apiKey,
   providerUrl,
-  checkedFetch,
+  speechTransport,
   responseJson,
   parseVoices,
   MAX_VOICES,
 } from '../transport.js';
+import type { SpeechTransportOptions } from '../transport.js';
+import { registerEndpointAdapters } from '../check-endpoint.js';
 import { nativeSession } from './native-session.js';
 
 /** Deepgram v1: is_final commits a segment; speech_final/UtteranceEnd only delimit utterances.
@@ -19,10 +21,11 @@ import { nativeSession } from './native-session.js';
  * https://github.com/livekit/agents-js/blob/main/plugins/deepgram/src/stt.ts
  * Aura uses https://developers.deepgram.com/reference/text-to-speech/speak-request
  */
-export function createDeepgramAdapters(config: ProviderEndpointConfig): {
+export function createDeepgramAdapters(config: ProviderEndpointConfig, transportOptions: SpeechTransportOptions = {}): {
   stt: SttAdapter;
   tts: TtsAdapter;
 } {
+  const { checkedFetch } = speechTransport(transportOptions);
   const stt: SttAdapter = {
     id: 'deepgram',
     capabilities: {
@@ -55,6 +58,7 @@ export function createDeepgramAdapters(config: ProviderEndpointConfig): {
       let revision = 0;
       let hasCommitted = false;
       return nativeSession({
+        transport: transportOptions,
         url,
         authorization: `Token ${apiKey(config)}`,
         signal,
@@ -169,5 +173,5 @@ export function createDeepgramAdapters(config: ProviderEndpointConfig): {
       }
     },
   };
-  return { stt, tts };
+  return registerEndpointAdapters(config, transportOptions, createDeepgramAdapters, { stt, tts });
 }

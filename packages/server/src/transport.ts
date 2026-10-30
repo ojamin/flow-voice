@@ -1,13 +1,53 @@
 import WebSocket from 'ws';
-import { DEFAULT_LIMITS } from '@flow-voice/core';
+import type { ClientRequest, IncomingMessage } from 'node:http';
+import { DEFAULT_LIMITS, isLocalSpeechEndpoint } from '@flow-voice/core';
 import type { AudioFormat, ProviderEndpointConfig, SpeechErrorCode, Voice } from '@flow-voice/core';
 import { speechError } from './errors.js';
 
+/** Node event-emitter contract; a ws instance satisfies it without a wrapper. */
+export interface SpeechWebSocketEvents {
+  open: [];
+  message: [data: Buffer | ArrayBuffer | Buffer[], binary: boolean];
+  error: [error: Error];
+  close: [code: number, reason: Buffer];
+  'unexpected-response': [request: ClientRequest, response: IncomingMessage];
+}
+export interface SpeechWebSocket {
+  readonly readyState: number;
+  readonly bufferedAmount: number;
+  on<E extends keyof SpeechWebSocketEvents>(event: E, listener: (...args: SpeechWebSocketEvents[E]) => void): unknown;
+  send(data: string | Uint8Array, callback?: (error?: Error) => void): void;
+  close(): void;
+  terminate(): void;
+}
+export interface SpeechWebSocketOptions {
+  headers?: Record<string, string>;
+  protocols?: string | string[];
+  followRedirects?: false;
+  maxPayload?: number;
+  handshakeTimeout?: number;
+}
+export interface SpeechTransportOptions {
+  fetch?: typeof fetch;
+  /** Node ws-compatible socket factory. Redirects must remain disabled. */
+  webSocket?: (url: URL | string, options: SpeechWebSocketOptions) => SpeechWebSocket;
+}
+
+export function speechTransport(options: SpeechTransportOptions) {
+  return {
+    checkedFetch: (url: URL | string, init: RequestInit) => checkedFetch(url, init, options),
+    nativeFetch: (url: URL | string, init: RequestInit) => checkedFetch(url, init, options),
+    createSpeechWebSocket: (url: URL | string, init: SpeechWebSocketOptions) => createSpeechWebSocket(url, init, options),
+  };
+}
+
 export function createSpeechWebSocket(
   url: URL | string,
-  options: WebSocket.ClientOptions,
-): WebSocket {
-  return new WebSocket(url, { ...options, followRedirects: false });
+  options: SpeechWebSocketOptions,
+  transport: SpeechTransportOptions = {},
+): SpeechWebSocket {
+  const init = { ...options, followRedirects: false as const };
+  return transport.webSocket ? transport.webSocket(url, init) : new WebSocket(url, options.protocols, init);
 }
 
 export function authHeaders(apiKey?: string): Record<string, string> {
@@ -96,6 +136,7 @@ export interface SpeechSocket {
 }
 /** Buffers only bounded pre-open/outbound frames; protocol handshake belongs to adapter. */
 export function openSpeechSocket(options: {
+  transport?: SpeechTransportOptions;
   url: URL | string;
   headers?: Record<string, string>;
   signal: AbortSignal;
@@ -111,7 +152,7 @@ export function openSpeechSocket(options: {
     followRedirects: false,
     maxPayload: 1_048_576,
     handshakeTimeout: options.openTimeoutMs ?? 10_000,
-  });
+  }, options.transport);
   let closed = false;
   let bytes = 0;
   let sending = false;
@@ -218,9 +259,9 @@ export function jsonFrame(frame: { data: Uint8Array; binary: boolean }): Record<
   }
 }
 /** Credentials never cross redirects, including same-origin redirects and HTTPS downgrades. */
-export async function checkedFetch(url: URL | string, init: RequestInit): Promise<Response> {
+export async function checkedFetch(url: URL | string, init: RequestInit, transport: SpeechTransportOptions = {}): Promise<Response> {
   try {
-    const response = await fetch(url, { ...init, redirect: 'error' });
+    const response = await (transport.fetch ?? fetch)(url, { ...init, redirect: 'error' });
     if (!response.ok) {
       await response.body?.cancel();
       throw speechError(statusCode(response.status));
@@ -319,6 +360,7 @@ export function providerUrl(config: ProviderEndpointConfig, path: string, websoc
   return url;
 }
 export function apiKey(config: ProviderEndpointConfig): string {
+  if (!config.apiKey?.trim() && isLocalSpeechEndpoint(config.baseUrl)) return '';
   if (!config.apiKey?.trim()) throw speechError('not_configured');
   return config.apiKey;
 }

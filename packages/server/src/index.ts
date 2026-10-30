@@ -84,6 +84,7 @@ export { synthesize, listVoices, resolveVoice } from './synthesis.js';
 export { createVoiceCatalog } from './catalog.js';
 export type { VoiceCatalog } from './catalog.js';
 export { createAdapters } from './registry.js';
+export type { SpeechTransportOptions, SpeechWebSocket, SpeechWebSocketOptions, SpeechWebSocketEvents } from './transport.js';
 export { prepareSpeechEndpoint } from './prepare-endpoint.js';
 export type { PrepareSpeechEndpointOptions } from './prepare-endpoint.js';
 export { normalizeSpeechError } from './errors.js';

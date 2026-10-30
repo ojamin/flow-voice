@@ -6,7 +6,7 @@ export { VoiceSelect, type VoiceSelectProps, type VoiceChoiceState } from './Voi
 export { VoiceControls, type VoiceControlsProps } from './VoiceControls.js';
 export { CallControls, type CallControlsProps } from './CallControls.js';
 export { SpeechPreferencesForm, type SpeechPreferencesFormProps } from './SpeechPreferencesForm.js';
-export { SpeechEndpointForm, type SpeechEndpointFormProps } from './SpeechEndpointForm.js';
+export { SpeechEndpointForm, type SpeechEndpointFormProps, type SpeechEndpointTestResult } from './SpeechEndpointForm.js';
 /** Hooks subscribe to host-owned stores; controller/player lifecycle is owned by the host. */
 export { useSpeechPlayer, useAutoRead, PlayerControls, ReadAloudButton } from './playback.js';
 export { useDictation } from './dictation.js';

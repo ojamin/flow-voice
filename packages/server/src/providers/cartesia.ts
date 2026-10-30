@@ -3,7 +3,7 @@ import type { TtsAdapter } from '../index.js';
 import { requestedSynthesis } from '../audio-stream.js';
 import {
   nativeError,
-  nativeFetch,
+  speechTransport,
   nativeUrl,
   normalizeNative,
   parseVoices,
@@ -13,15 +13,18 @@ import {
   MAX_VOICES,
   MAX_VOICE_PAGES,
 } from '../transport.js';
+import type { SpeechTransportOptions } from '../transport.js';
+import { registerEndpointAdapters } from '../check-endpoint.js';
 
 // Pinned to the documented bearer-auth, paginated-voices, generation_config API.
 // https://docs.cartesia.ai/api-reference/tts/sse
 const version = '2026-08-14';
 const rates = [8000, 16000, 22050, 24000, 44100, 48000];
 
-export function createCartesiaAdapters(config: ProviderEndpointConfig): { tts: TtsAdapter } {
+export function createCartesiaAdapters(config: ProviderEndpointConfig, transportOptions: SpeechTransportOptions = {}): { tts: TtsAdapter } {
+  const { nativeFetch } = speechTransport(transportOptions);
   const headers = { Authorization: `Bearer ${config.apiKey ?? ''}`, 'Cartesia-Version': version };
-  return {
+  return registerEndpointAdapters(config, transportOptions, createCartesiaAdapters, {
     tts: {
       id: 'cartesia',
       capabilities: {
@@ -152,5 +155,5 @@ export function createCartesiaAdapters(config: ProviderEndpointConfig): { tts: T
         }
       },
     },
-  };
+  });
 }

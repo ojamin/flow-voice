@@ -2,6 +2,7 @@ import { DEFAULT_LIMITS } from '@flow-voice/core';
 import type { SttEvent, SttSession } from '../index.js';
 import { normalizeSpeechError, speechError } from '../errors.js';
 import { BoundedQueue, checkedFetch, linkedAbort, responseJson } from '../transport.js';
+import type { SpeechTransportOptions } from '../transport.js';
 
 /** PCM16 mono RIFF, with no encoder or container dependency. */
 function wav(pcm: Uint8Array, rate: number): Uint8Array<ArrayBuffer> {
@@ -27,6 +28,7 @@ function wav(pcm: Uint8Array, rate: number): Uint8Array<ArrayBuffer> {
 }
 
 export function restTranscription(options: {
+  transport?: SpeechTransportOptions;
   url: URL;
   headers: Record<string, string>;
   model: string;
@@ -89,7 +91,7 @@ export function restTranscription(options: {
           const response = await checkedFetch(options.url, {
             method: 'POST', headers: options.headers, body,
             signal: AbortSignal.any([signal, timeout.signal]),
-          });
+          }, options.transport);
           const result = await responseJson(response, 65_536);
           if (typeof result.text !== 'string' || result.text.length > 32000)
             throw speechError('provider_error');

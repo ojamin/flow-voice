@@ -6,7 +6,7 @@ it('normalizes the draft and hands the host-resolved secret to the injected fact
   const adapters = createFakeAdapters();
   const factory = vi.fn(() => adapters);
   expect(prepareSpeechEndpoint({ kind: 'tts', draft: { provider: 'fake', model: ' model ', baseUrl: 'https://speech.example:443/v1/', options: { voice: ' voice ' } }, apiKey: 'preserved-secret', createAdapters: factory })).toBe(adapters);
-  expect(factory).toHaveBeenCalledExactlyOnceWith({ provider: 'fake', model: 'model', baseUrl: 'https://speech.example/v1', apiKey: 'preserved-secret', options: { voice: 'voice' } });
+  expect(factory).toHaveBeenCalledExactlyOnceWith({ provider: 'fake', model: 'model', baseUrl: 'https://speech.example/v1', apiKey: 'preserved-secret', options: { voice: 'voice' } }, { fetch: undefined, webSocket: undefined });
 });
 it('rejects bad options before constructing adapters', () => {
   const factory = vi.fn(() => createFakeAdapters());

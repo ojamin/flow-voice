@@ -229,12 +229,38 @@ MIME codec parameters are retained.
 `validateSpeechEndpointDraft(value, previous?)` returns `{ ok: true, value }` or
 `{ ok: false, issues }`. It trims fields, canonicalizes HTTP(S) URLs (including
 default ports/trailing slashes), rejects credentials/query/fragment, and requires
-a new API key if an existing endpoint's provider or normalized URL changes.
-Model/options edits preserve key binding. It does not perform DNS, URL policy,
+a new API key if an existing endpoint's provider or URL origin (scheme, host, port)
+changes. Path-only edits, including adding `/v1`, preserve key binding. Fresh local
+endpoints accept absent or empty keys: `localhost`, `::1`, `127.0.0.0/8`,
+`10.0.0.0/8`, `172.16.0.0/12`, and `192.168.0.0/16`. A local address never
+inherits a saved key from a different origin. Model/options edits preserve key
+binding. It does not perform DNS, URL policy,
 authorization, persistence or secret retrieval. After those host checks,
 `prepareSpeechEndpoint({ kind, draft, apiKey?, createAdapters? })` validates options
 and registry support and returns the adapters. Production `fake` is rejected;
 tests can explicitly inject their adapter factory.
+
+### Host-owned server transports
+
+`createAdapters(config, { fetch?, webSocket? })` and each native provider factory
+accept optional `SpeechTransportOptions`. `prepareSpeechEndpoint` accepts the
+same `fetch` and `webSocket` fields. The fetch hook is plain `typeof fetch`;
+requests use string/URL + standard `RequestInit` with `redirect: 'error'`, and
+responses use web `ReadableStream` bodies. It covers synthesis, catalogs, REST
+STT and admin probes (including model discovery and the `/v1` retry).
+
+The socket factory receives the full URL and `SpeechWebSocketOptions`, including
+authentication headers, optional subprotocols, payload/handshake limits and
+`followRedirects: false`. It returns the exported minimal `SpeechWebSocket`
+Node event-emitter contract (`on`, `send`, `close`, `terminate`, `readyState`,
+`bufferedAmount`). Events are `open`, `message` (Buffer/ArrayBuffer/Buffer[] plus
+binary flag), `error`, `close`, and `unexpected-response` (Node HTTP upgrade
+request/response). `terminate()` must eventually emit `close`, including during
+connection setup. A `ws` instance satisfies the interface directly. For example,
+a host may construct `ws` with its own DNS-pinned `lookup`/`createConnection`,
+passing through the supplied headers and limits and keeping redirects disabled.
+The library's existing default fetch and Node `ws` transport remain unchanged
+when hooks are omitted; no additional transport dependency is required.
 
 `resolvePlaybackPreference({ defaults?, preference?, override? })` matches message
 playback precedence: account defaults, the user's nonempty voice, then the
@@ -255,9 +281,26 @@ provider requests: TTS lists available voices and synthesizes `Test.`, cancellin
 the first audio chunk; STT waits for provider acceptance and cancels without audio.
 REST transcription (including OpenAI's realtime-to-REST fallback) has no authenticated
 handshake, so it submits 20 ms of silent PCM as WAV and waits for acceptance instead.
-Successful results contain `{ tts?: { ok: true, voices }, stt?: { ok: true, verified: true } }`;
-auth, model, network, timeout and cancellation failures reject with a normalized
-`SpeechError`, never provider diagnostics. Custom STT adapters may expose the optional
+Verified results contain `{ tts?: { ok: true, voices }, stt?: { ok: true, verified: true, live? } }`.
+`stt.live: true` means a live handshake succeeded; `false` means an unavailable
+realtime endpoint fell back to verified REST. Explicit REST selections and custom
+adapters without a live handshake leave it unspecified. Native adapter probes also
+try `GET {base}/models` after verification, accepting OpenAI-compatible
+`{ data: [{ id }] }`. Optional `models` contains at most 1000 unique, nonempty
+string ids (at most 200 characters each); failed/malformed/oversized discovery
+leaves it absent and does not fail a verified Test. Discovery has a four-second
+budget within the remaining probe timeout.
+
+If a provider call returns 404 and the configured base does not end in `/v1`,
+the probe retries once with `/v1` appended. A successful retry includes `baseUrl`
+with the corrected address; runtime adapters are not mutated. No other path
+guessing occurs. Voice discovery failure returns
+`{ voiceError: "Couldn't load voices from this server" }` instead of pretending
+that built-in names belong to a custom server; no TTS audio was verified.
+Other auth, model, network, timeout and cancellation failures reject with a
+normalized `SpeechError`, never provider diagnostics. Forward the complete JSON
+result to `SpeechEndpointForm` rather than projecting only voices.
+Custom STT adapters may expose the optional
 `session.ready: Promise<boolean>` (`true` after provider acceptance, `false` if an audio
 probe is required); without it the check uses the silent-audio path. Their `end()` and
 events must report provider rejection, not just local admission. All adapters must
@@ -269,7 +312,7 @@ honor abort signals so probes release their resources.
   for best quality on supported models). Synthesis validates this model-specific list.
   Custom endpoints try `GET {baseUrl}/audio/voices` with a four-second timeout,
   accepting a bare array or `{voices: [...]}` of strings or objects with
-  `id`, `name` or `voice`. Discovery failure returns the built-in suggestions;
+  `id`, `name` or `voice`. Discovery failures throw, with no built-in suggestions;
   custom voice ids always pass through to synthesis without local rejection.
 - **Deepgram:** `GET /v1/models` lists live `tts` entries by `canonical_name`.
   The configured Aura model is the default, otherwise `aura-2-thalia-en`;
@@ -295,6 +338,9 @@ raw PCM16 mono at 24 kHz. REST sends a WAV multipart `file`, configured `model`,
 optional session `language`, and `response_format=json`, preserving the `baseUrl`
 path prefix (for example `https://speech.example/api/v1`). Select a transcription
 model supported by your service; REST defaults to `whisper-1` if model is empty.
+MOSS-compat accepts the same connection option and REST protocol at 16 kHz;
+its existing native `/v1/realtime/transcriptions` protocol remains the live path
+(a base already ending in `/v1` does not duplicate that prefix).
 
 The default remains `sttTransport: 'realtime'` for compatibility. A realtime
 handshake rejected with HTTP 404, 405 or 426 automatically switches to REST,
@@ -514,8 +560,15 @@ authorization, suggestion sources and persistence.
 choices={choices} onSave={save} onTest={test} />` owns provider/model/base URL,
 write-only key replacement and key hint, concrete STT/TTS options, clear/reset and
 async feedback. `providers` are host policy, not a library capability table.
-`test(draft)` returns `{ ok: true, voices? }` and never saves; editing invalidates
-test feedback and catalog results. `choices` belongs to `initial` and is not reused
+`test(draft)` returns the JSON `SpeechEndpointCheck` from the server verbatim and
+never saves; the legacy `{ ok: true, voices? }` projection is still accepted.
+The form offers `models` through a datalist while allowing free typing. A corrected
+`baseUrl` automatically updates the address with an “Added /v1” note. A verified
+REST fallback (`stt.live: false`) selects the existing REST connection option for
+OpenAI/MOSS-compat and explains that live is unavailable. `voiceError` is displayed
+as an error with no suggested voices. Editing invalidates test feedback and voice
+catalog results; model choices remain while editing the model, but clear on
+endpoint identity changes, reset or save. `choices` belongs to `initial` and is not reused
 for a different unsaved provider/model/base URL. `save(write)` returns `SpeechEndpointView | null`;
 clear sends `{ clear: true }`. A successful save clears the typed key. Supply
 `onErrorFields(error)` for server field messages; server validation remains

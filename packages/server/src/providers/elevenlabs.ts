@@ -1,4 +1,3 @@
-import type WebSocket from 'ws';
 import type { ProviderEndpointConfig } from '@flow-voice/core';
 import type { SttAdapter, SttEvent, TtsAdapter } from '../index.js';
 import { normalizeSpeechError } from '../errors.js';
@@ -6,7 +5,6 @@ import { requestedHttpSynthesis } from '../audio-stream.js';
 
 import {
   nativeError,
-  nativeFetch,
   nativeUrl,
   normalizeNative,
   parseVoices,
@@ -14,8 +12,10 @@ import {
   requireVoice,
   statusError,
   responseJson,
-  createSpeechWebSocket,
+  speechTransport,
 } from '../transport.js';
+import type { SpeechTransportOptions, SpeechWebSocket } from '../transport.js';
+import { registerEndpointAdapters } from '../check-endpoint.js';
 
 const sttRates = [8000, 16000, 22050, 24000, 44100, 48000];
 const ttsRates = [16000, 22050, 24000, 44100];
@@ -23,10 +23,11 @@ const ttsRates = [16000, 22050, 24000, 44100];
 /** Scribe realtime uses manual commits so end() has an explicit final acknowledgement.
  * Pad short recordings to 300ms: Scribe rejects commits below its minimum duration.
  * Protocol: https://elevenlabs.io/docs/api-reference/speech-to-text/v-1-speech-to-text-realtime */
-export function createElevenLabsAdapters(config: ProviderEndpointConfig): {
+export function createElevenLabsAdapters(config: ProviderEndpointConfig, transportOptions: SpeechTransportOptions = {}): {
   stt: SttAdapter;
   tts: TtsAdapter;
 } {
+  const { nativeFetch, createSpeechWebSocket } = speechTransport(transportOptions);
   const headers = { 'xi-api-key': config.apiKey ?? '' };
   const stt: SttAdapter = {
     id: 'elevenlabs',
@@ -45,7 +46,7 @@ export function createElevenLabsAdapters(config: ProviderEndpointConfig): {
       url.searchParams.set('audio_format', `pcm_${format.sampleRate}`);
       url.searchParams.set('commit_strategy', 'manual');
       if (language) url.searchParams.set('language_code', language);
-      let socket: WebSocket;
+      let socket: SpeechWebSocket;
       try {
         socket = createSpeechWebSocket(url, {
           headers,
@@ -318,5 +319,5 @@ export function createElevenLabsAdapters(config: ProviderEndpointConfig): {
       }
     },
   };
-  return { stt, tts };
+  return registerEndpointAdapters(config, transportOptions, createElevenLabsAdapters, { stt, tts });
 }
