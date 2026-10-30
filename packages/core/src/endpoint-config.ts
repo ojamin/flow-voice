@@ -14,7 +14,7 @@ const draftSchema = z.strictObject({
   provider: z.string().trim().min(1, 'Choose a provider.').max(64).regex(/^[a-z][a-z0-9.-]*$/),
   model: z.string().trim().min(1, 'Enter a model.').max(200),
   baseUrl: z.string().trim().max(2048).nullable().optional(),
-  apiKey: z.string().trim().min(1).max(8192).optional(),
+  apiKey: z.string().trim().max(8192).optional(),
   options: speechEndpointOptionsSchema.optional(),
 });
 
@@ -24,6 +24,24 @@ function normalizeUrl(value: string | null | undefined): string | null {
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password ||
     url.search || url.hash || value.includes('?') || value.includes('#')) throw new Error('Invalid endpoint URL');
   return url.href.replace(/\/+$/, '');
+}
+
+function origin(value: string | null | undefined): string | null {
+  const normalized = normalizeUrl(value);
+  return normalized ? new URL(normalized).origin : null;
+}
+
+/** Literal loopback/private addresses only; hosts still apply their own URL policy. */
+export function isLocalSpeechEndpoint(value: string | null | undefined): boolean {
+  if (!value) return false;
+  try {
+    const host = new URL(value).hostname;
+    if (host === 'localhost' || host === '[::1]') return true;
+    const parts = host.split('.').map(Number);
+    if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+    const [a, b] = parts;
+    return a === 127 || a === 10 || (a === 172 && b! >= 16 && b! <= 31) || (a === 192 && b === 168);
+  } catch { return false; }
 }
 
 /** Syntax and key binding only; hosts still authorize and apply their URL policy. */
@@ -36,9 +54,15 @@ export function validateSpeechEndpointDraft(value: unknown,
   const draft = result.data;
   try {
     draft.baseUrl = normalizeUrl(draft.baseUrl);
+    if (draft.apiKey === '') {
+      if (!isLocalSpeechEndpoint(draft.baseUrl)) return { ok: false, issues: [
+        { path: ['apiKey'], message: 'Enter an API key.' },
+      ] };
+      delete draft.apiKey;
+    }
     if (previous && !draft.apiKey && (previous.provider !== draft.provider ||
-      normalizeUrl(previous.baseUrl) !== draft.baseUrl)) return { ok: false, issues: [
-        { path: ['apiKey'], message: 'Enter a new API key when changing the provider or base URL.' },
+      origin(previous.baseUrl) !== origin(draft.baseUrl))) return { ok: false, issues: [
+        { path: ['apiKey'], message: 'Enter a new API key when changing the provider or endpoint origin.' },
       ] };
   } catch {
     return { ok: false, issues: [{ path: ['baseUrl'], message: 'Use an HTTP(S) URL without credentials, query or fragment.' }] };

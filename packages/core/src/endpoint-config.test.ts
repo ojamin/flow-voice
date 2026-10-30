@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { audioFormatSchema, dictationPreferenceSchema, normalizeDictationPreference,
-  resolvePlaybackPreference, speechEndpointOptionsSchema, validateSpeechEndpointDraft, voiceSchema } from './index.js';
+  resolvePlaybackPreference, speechEndpointOptionsSchema, validateSpeechEndpointDraft, voiceSchema, isLocalSpeechEndpoint } from './index.js';
 
 const previous = { provider: 'openai', baseUrl: 'https://speech.example:443/v1/' };
 const draft = { provider: 'openai', model: ' new-model ', baseUrl: 'https://speech.example/v1' };
@@ -27,6 +27,28 @@ it.each([{ provider: 'deepgram' }, { baseUrl: 'https://other.example' }, { baseU
 
 it.each(['ftp://speech.example', 'https://user:secret@speech.example', 'https://speech.example/?q=x', 'https://speech.example/#x', 'not a URL'])('rejects unsafe URL syntax: %s', (baseUrl) => {
   expect(validateSpeechEndpointDraft({ ...draft, baseUrl })).toMatchObject({ ok: false, issues: [{ path: ['baseUrl'] }] });
+});
+
+it.each(['https://speech.example', 'https://speech.example/v2', 'https://speech.example:443/nested/path'])('preserves the saved key for same-origin path edits: %s', (baseUrl) => {
+  expect(validateSpeechEndpointDraft({ ...draft, baseUrl }, previous)).toMatchObject({ ok: true });
+});
+
+it.each(['http://speech.example/v1', 'https://speech.example:444/v1', 'http://127.0.0.1:3100/v1'])('never inherits a saved key across origins, even onto a local server: %s', (baseUrl) => {
+  expect(validateSpeechEndpointDraft({ ...draft, baseUrl }, previous)).toMatchObject({ ok: false, issues: [{ path: ['apiKey'] }] });
+});
+
+it.each(['localhost', '127.0.0.1', '127.255.255.254', '10.255.255.254', '172.16.0.1', '172.31.255.254', '192.168.255.254', '[::1]'])('accepts absent or empty local keys without placeholders: %s', (host) => {
+  const baseUrl = `http://${host}:3100/v1`;
+  expect(isLocalSpeechEndpoint(baseUrl)).toBe(true);
+  for (const apiKey of [undefined, '', '  ']) {
+    expect(validateSpeechEndpointDraft({ ...draft, baseUrl, apiKey })).toMatchObject({ ok: true, value: { baseUrl } });
+  }
+});
+
+it.each(['172.15.255.255', '172.32.0.1', '192.169.0.1', '11.0.0.1', 'localhost.example', 'example.com', '[::2]'])('does not treat public or lookalike hosts as local: %s', (host) => {
+  const baseUrl = `http://${host}`;
+  expect(isLocalSpeechEndpoint(baseUrl)).toBe(false);
+  expect(validateSpeechEndpointDraft({ ...draft, baseUrl, apiKey: '' })).toMatchObject({ ok: false });
 });
 
 it.each([{ speed: 0.49 }, { speed: 2.01 }, { voice: ' ' }, { language: '' }, { sttTransport: 'websocket' }, { apiKey: 'secret' }, { format: { kind: 'pcm', encoding: 'pcm_s16le', channels: 3, sampleRate: 24000 } }])('rejects bad endpoint options before adapter use: %j', (options) => {
