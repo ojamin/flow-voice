@@ -4,52 +4,36 @@
   "license": "MIT",
   "type": "module",
   "files": [
-    "dist"
+    "dist",
+    "LICENSE",
+    "NOTICE"
   ],
   "exports": {
     "./tiptap": {
-      "flow-voice:source": "./src/tiptap.ts",
       "types": "./dist/tiptap.d.ts",
       "import": "./dist/tiptap.js",
       "default": "./dist/tiptap.js"
     },
     "./worklet": {
-      "flow-voice:source": "./src/capture/worklet.js",
       "default": "./dist/capture/worklet.js"
     },
     ".": {
-      "flow-voice:source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     }
   },
-  "scripts": {
-    "build": "tsc-rs -p tsconfig.build.json && node -e \"require('node:fs').copyFileSync('src/capture/worklet.js', 'dist/capture/worklet.js')\"",
-    "typecheck": "tsc-rs --noEmit -p tsconfig.json",
-    "lint": "oxlint src",
-    "test": "vitest run --passWithNoTests",
-    "test:unit": "vitest run --passWithNoTests"
-  },
-  "dependencies": {
-    "@flow-voice/core": "workspace:*"
-  },
-  "devDependencies": {
-    "@tiptap/core": "3.30.5",
-    "@tiptap/pm": "3.30.5",
-    "@flow-voice/server": "workspace:*",
-    "@types/node": "^22.20.1",
-    "jsdom": "29.1.1",
-    "oxlint": "^1.76.0",
-    "tsc-rs": "0.2.0",
-    "vitest": "^4.1.10"
-  },
   "peerDependencies": {
     "@tiptap/core": "^3.30.5",
-    "@tiptap/pm": "^3.30.5"
+    "@tiptap/pm": "^3.30.5",
+    "@flow-voice/core": "github:ojamin/flow-voice#v0.8.0&path:/packages/core"
   },
   "peerDependenciesMeta": {
-    "@tiptap/core": { "optional": true },
-    "@tiptap/pm": { "optional": true }
+    "@tiptap/core": {
+      "optional": true
+    },
+    "@tiptap/pm": {
+      "optional": true
+    }
   }
 }
