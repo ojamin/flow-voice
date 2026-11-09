@@ -104,6 +104,27 @@ that awaits `SubmissionBinding.finish()`). It reads the draft only after final
 transcription, then follows the ordinary host submit path. The callback supplied
 to the textarea adapter must be the underlying submit, not adapter.submit itself.
 `canSubmit` must include all normal host disabled/upload/pending/permission checks.
+The SDK adapters honor the optional admission guard returned by
+`SubmissionBinding.finish()`. Custom submit owners must retain that result through
+all editor/host settling and call it **synchronously immediately before** starting
+the underlying host request. For example, within the existing bound submit owner:
+
+```ts
+const admit = await pending.finish();
+await editorSettled(); // all settling/preparation awaits belong before admission
+if (admit && !admit()) return; // retired attempt: no request, release, or failure
+await normalHostSubmit(); // start directly; do not finish dictation again here
+pending.release();
+```
+
+A missing guard preserves legacy bindings. A false guard is a normal retirement,
+not a submission failure. It lets interrupted automatic finalization return to the
+controller's existing capture/rearm path; manual Send can still take over. Once a
+guard admits a request, later activity does not revoke it. A custom composer that
+ignores the guard cannot guarantee postponement during its asynchronous preparation.
+`finishSubmission()` performs the SDK editor's settling/admission for external Send
+buttons; start the request directly after its true result, with no further settling.
+
 Use `release()` after successful manual submission. Call `invalidate()` **before**
 replacing the draft, switching conversation or navigating; it stops without touching
 the replacement draft. Dispose the textarea adapter when its element is removed.

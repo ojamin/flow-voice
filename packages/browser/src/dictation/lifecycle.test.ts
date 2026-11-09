@@ -50,6 +50,22 @@ function setup(overrides: Partial<Parameters<typeof createDictationController>[0
     },
   };
 }
+it('does not submit, release, or fail a retired textarea submission', async () => {
+  const element = document.createElement('textarea');
+  element.value = 'draft';
+  const submit = vi.fn(async () => {});
+  const composer = createTextareaComposerAdapter({ element, canSubmit: () => true, submit });
+  const pending = {
+    finish: vi.fn(async () => () => false),
+    release: vi.fn(), failed: vi.fn(), invalidate: vi.fn(),
+  };
+  composer.bindSubmission(pending);
+  await composer.submit();
+  expect(submit).not.toHaveBeenCalled();
+  expect(pending.release).not.toHaveBeenCalled();
+  expect(pending.failed).not.toHaveBeenCalled();
+  composer.dispose();
+});
 it('restores the selected original when cancelling tentative-only speech or a permission prompt', async () => {
   const f = setup();
   await f.controller.start();

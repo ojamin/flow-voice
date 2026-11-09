@@ -47,8 +47,12 @@ export interface DictationTransport {
 }
 export { createWebSocketDictationTransport } from './transport/websocket.js';
 export interface SubmissionBinding {
-  /** Wait for final transcription before normal submit reads its draft. */
-  finish(): Promise<void>;
+  /** Wait for final transcription before normal submit reads its draft.
+   * If returned, call the admission guard synchronously immediately before starting the host
+   * request, after all editor/host settling awaits. False retires this attempt: do not submit,
+   * release, or report failure. A true result admits the request; later activity cannot revoke it.
+   * Legacy bindings may return void. */
+  finish(): Promise<void | (() => boolean)>;
   /** Normal submit completed; detach dictation's draft ownership. */
   release(): void;
   /** Submit failed: retain the finalized draft and surface a stopped/error state. */

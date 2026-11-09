@@ -95,7 +95,7 @@ export function createTextareaComposerAdapter(options: {
     canSubmit: options.canSubmit,
     async submit() {
       const pending = binding;
-      await pending?.finish();
+      const admit = await pending?.finish();
       if (pending && binding !== pending) return;
       if (!element.value.trim()) {
         pending?.invalidate();
@@ -105,7 +105,7 @@ export function createTextareaComposerAdapter(options: {
         pending?.failed?.();
         return;
       }
-      await submitWithBinding(() => options.submit(), pending);
+      await submitWithBinding(() => options.submit(), pending, admit);
     },
     bindSubmission(value) {
       binding = value;

@@ -2,6 +2,32 @@ import { expect, it, vi } from 'vitest';
 import { createEditorComposerAdapter } from '../index.js';
 import type { EditorDraft, EditorPort, SubmissionBinding } from '../index.js';
 
+it.each(['submit', 'finishSubmission'] as const)('checks the binding admission guard after settling (%s)', async (method) => {
+  const e = editor('draft');
+  const adapter = createEditorComposerAdapter(e.port);
+  adapter.begin();
+  let settle!: () => void;
+  let allowed = true;
+  const admit = vi.fn(() => allowed);
+  const pending: SubmissionBinding = {
+    finish: vi.fn(async () => admit), release: vi.fn(), failed: vi.fn(), invalidate: vi.fn(),
+  };
+  e.port.settled = vi.fn(() => new Promise<void>((resolve) => { settle = resolve; }));
+  adapter.bindSubmission(pending);
+  const sending = adapter[method]();
+  await vi.waitFor(() => expect(e.port.settled).toHaveBeenCalledOnce());
+  expect(admit).not.toHaveBeenCalled();
+  allowed = false;
+  settle();
+  const result = await sending;
+  if (method === 'finishSubmission') expect(result).toBe(false);
+  expect(admit).toHaveBeenCalledOnce();
+  expect(e.port.submit).not.toHaveBeenCalled();
+  expect(pending.release).not.toHaveBeenCalled();
+  expect(pending.failed).not.toHaveBeenCalled();
+  adapter.dispose();
+});
+
 /** An in-memory revisioned editor. */
 function editor(text: string, caret = text.length) {
   let draft: EditorDraft = { ownerKey: 'chat-a', text, selection: { start: caret, end: caret }, revision: 0 };

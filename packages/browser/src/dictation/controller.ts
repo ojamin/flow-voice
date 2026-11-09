@@ -25,6 +25,7 @@ type Session = {
   rearmPause: boolean;
   pauseDraft: boolean;
   sending: boolean;
+  admitted?: boolean;
   submission?: boolean;
   stopped: boolean;
   keyword?: boolean;
@@ -101,7 +102,7 @@ export function createDictationController(
   const notifyUserActivity = () => {
     const s = session;
     if (options.activityPolicy !== 'postpone') return cancelAutoSend();
-    if (!s || s.autoCancelled) return;
+    if (!s || s.autoCancelled || s.admitted) return;
     s.lastSoundAt = Date.now();
     if (s.sending) s.rearmPause = true;
     if (snapshot.countdownMs !== null) publish({ countdownMs: null });
@@ -176,6 +177,10 @@ export function createDictationController(
         return;
       }
       await options.composer.submit();
+      if (s.rearmPause && !s.admitted) {
+        rearmPause = true;
+        return;
+      }
       if (!disposed && session === s && !s.failure) {
         publish({ status: 'idle' });
         if (options.stopAfterSend === false) await controller.start();
@@ -289,12 +294,20 @@ export function createDictationController(
         options.composer.begin();
         s.unbind = options.composer.bindSubmission({
           failed: () => submissionFailure(s),
-          finish: () => {
-            if (s.sending && !s.rearmPause) return finishSession(s);
-            s.sending = false;
-            cancelAutoSend();
-            s.submission = true;
-            return finishSession(s);
+          finish: async () => {
+            const automatic = s.sending && !s.rearmPause;
+            if (!automatic) {
+              s.sending = false;
+              cancelAutoSend();
+              s.submission = true;
+            }
+            await finishSession(s);
+            if (automatic) return () => {
+              if (disposed || session !== s || s.failure || s.autoCancelled || s.rearmPause || s.submission)
+                return false;
+              s.admitted = true;
+              return true;
+            };
           },
           release: () => {
             if (s.sending) return; // autoSubmit owns completion/restart.

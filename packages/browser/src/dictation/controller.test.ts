@@ -13,6 +13,7 @@ import type {
   DictationController,
   DictationControllerOptions,
   DictationTransport,
+  SubmissionBinding,
 } from '../index.js';
 
 const controllers: DictationController[] = [];
@@ -38,6 +39,7 @@ function fixture(
   const settled = vi.fn(async () => {});
   let ownerKey = 'chat-a';
   let revision = 0;
+  const draftListeners = new Set<() => void>();
   const composer = adapter === 'textarea'
     ? createTextareaComposerAdapter({ element, canSubmit: () => allowed, submit })
     : createEditorComposerAdapter({
@@ -50,7 +52,10 @@ function fixture(
         revision++;
         return true;
       },
-      subscribeDraftChanges: () => () => {},
+      subscribeDraftChanges(listener) {
+        draftListeners.add(listener);
+        return () => { draftListeners.delete(listener); };
+      },
       settled,
       canSubmit: () => allowed,
       submit,
@@ -111,6 +116,12 @@ function fixture(
     submitted,
     capture,
     settled,
+    edit(text: string) {
+      element.value = text;
+      revision++;
+      if (adapter === 'textarea') element.dispatchEvent(new Event('input'));
+      else draftListeners.forEach((listener) => listener());
+    },
     replaceDraft() {
       composer.invalidate();
       ownerKey = 'chat-b';
@@ -481,6 +492,107 @@ describe('auto send', () => {
     expect(f.submitted).toEqual(['before HELLOafter']);
     expect(f.capture).toHaveBeenCalledTimes(2);
   });
+  it.each(['editor', 'custom'] as const)('retires automatic %s Send when activity occurs during settling', async (path) => {
+    vi.useFakeTimers();
+    const f = fixture({ enabled: true, silenceMs: 500 }, { activityPolicy: 'postpone' }, 'editor');
+    f.element.value = 'before ';
+    f.element.setSelectionRange(7, 7);
+    f.setFinal('hello');
+    let settle!: () => void;
+    f.settled.mockImplementationOnce(() => new Promise<void>((resolve) => { settle = resolve; }));
+    if (path === 'custom') {
+      let binding!: SubmissionBinding;
+      const bind = f.composer.bindSubmission.bind(f.composer);
+      vi.spyOn(f.composer, 'bindSubmission').mockImplementation((value) => {
+        binding = value;
+        return bind(value);
+      });
+      // A host-owned normal submit: finish once, settle, then directly admit its request.
+      vi.spyOn(f.composer, 'submit').mockImplementation(async () => {
+        const pending = binding;
+        const admit = await pending.finish();
+        await f.settled();
+        if (admit && !admit()) return;
+        await f.submit();
+        pending.release();
+      });
+    }
+    await f.controller.start();
+    f.emit(partial(1, 'hello', ''));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(f.settled).toHaveBeenCalledTimes(1);
+    expect(f.controller.getSnapshot().status).toBe('finalizing');
+    expect(f.submitted).toEqual([]);
+    expect(f.capture).toHaveBeenCalledTimes(1);
+    f.edit('before HELLO');
+    settle();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.submitted).toEqual([]);
+    expect(f.capture).toHaveBeenCalledTimes(2);
+    expect(f.controller.getSnapshot().status).toBe('listening');
+    f.setFinal('');
+    await vi.advanceTimersByTimeAsync(480);
+    expect(f.submitted).toEqual([]);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(f.submitted).toEqual(['before HELLO']);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(f.submit).toHaveBeenCalledTimes(1);
+  });
+  it.each([true, false])('manual Send takes over a retired editor attempt during settling (%s)', async (stopAfterSend) => {
+    vi.useFakeTimers();
+    const f = fixture({ enabled: true, silenceMs: 500 }, { activityPolicy: 'postpone', stopAfterSend }, 'editor');
+    let settle!: () => void;
+    f.settled.mockImplementationOnce(() => new Promise<void>((resolve) => { settle = resolve; }));
+    await f.controller.start();
+    f.emit(partial(1, 'hello', ''));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(f.settled).toHaveBeenCalledTimes(1);
+    f.edit('before HELLO world after');
+    await f.composer.submit();
+    settle();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.submitted).toEqual(['before HELLO world after']);
+    expect(f.capture).toHaveBeenCalledTimes(stopAfterSend ? 1 : 2);
+  });
+  it.each(['textarea', 'editor'] as const)('does not retire an already-admitted %s request on activity', async (adapter) => {
+    vi.useFakeTimers();
+    const f = fixture({ enabled: true, silenceMs: 500 }, { activityPolicy: 'postpone' }, adapter);
+    let complete!: () => void;
+    f.submit.mockImplementation(() => new Promise<void>((resolve) => { complete = resolve; }));
+    await f.controller.start();
+    f.emit(partial(1, 'hello', ''));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(f.submit).toHaveBeenCalledTimes(1);
+    f.edit('before HELLO world after');
+    complete();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(f.submit).toHaveBeenCalledTimes(1);
+    expect(f.capture).toHaveBeenCalledTimes(1);
+    expect(f.controller.getSnapshot().status).toBe('idle');
+  });
+  it.each(['default', 'explicit', 'invalidate', 'cancel', 'finish'] as const)(
+    '%s cancellation survives editor settling', async (protection) => {
+      vi.useFakeTimers();
+      const f = fixture({ enabled: true, silenceMs: 500 }, {
+        activityPolicy: protection === 'default' ? undefined : 'postpone',
+      }, 'editor');
+      let settle!: () => void;
+      f.settled.mockImplementationOnce(() => new Promise<void>((resolve) => { settle = resolve; }));
+      await f.controller.start();
+      f.emit(partial(1, 'hello', ''));
+      await vi.advanceTimersByTimeAsync(500);
+      expect(f.settled).toHaveBeenCalledTimes(1);
+      f.edit('before HELLO world after');
+      if (protection === 'explicit') f.controller.cancelAutoSend();
+      else if (protection === 'invalidate') f.composer.invalidate();
+      else if (protection === 'cancel') await f.controller.cancel();
+      else if (protection === 'finish') await f.controller.finish();
+      settle();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(f.submit).not.toHaveBeenCalled();
+      expect(f.capture).toHaveBeenCalledTimes(1);
+    },
+  );
   it.each([true, false])('manual Send takes over a postponed finalization (stopAfterSend: %s)', async (stopAfterSend) => {
     vi.useFakeTimers();
     const f = fixture({ enabled: true, silenceMs: 500 }, { activityPolicy: 'postpone', stopAfterSend });

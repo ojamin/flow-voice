@@ -203,10 +203,8 @@ export function createEditorComposerAdapter(port: EditorPort): EditorComposerAda
     async submit() {
       const pending = binding;
       const target = port.readDraft()?.ownerKey;
-      if (pending) {
-        await pending.finish();
-        await port.settled();
-      }
+      const admit = pending ? await pending.finish() : undefined;
+      if (pending) await port.settled();
       if (disposed || port.readDraft()?.ownerKey !== target || (pending && binding !== pending)) return;
       if (!port.readDraft()?.text.trim()) {
         pending?.invalidate();
@@ -218,7 +216,7 @@ export function createEditorComposerAdapter(port: EditorPort): EditorComposerAda
       }
       try {
         sending = true;
-        await submitWithBinding(() => port.submit(), pending);
+        await submitWithBinding(() => port.submit(), pending, admit);
       } finally {
         sending = false;
       }
@@ -236,11 +234,11 @@ export function createEditorComposerAdapter(port: EditorPort): EditorComposerAda
       const target = owner;
       return pending
         .finish()
-        .then(() => port.settled())
-        .then(
-          () => binding === pending && port.readDraft()?.ownerKey === target,
-          () => false,
-        );
+        .then(async (admit) => {
+          await port.settled();
+          return binding === pending && port.readDraft()?.ownerKey === target && (!admit || admit());
+        })
+        .catch(() => false);
     },
     releaseSubmission() {
       binding?.release();
