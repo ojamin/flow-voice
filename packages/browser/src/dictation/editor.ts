@@ -208,8 +208,12 @@ export function createEditorComposerAdapter(port: EditorPort): EditorComposerAda
         await port.settled();
       }
       if (disposed || port.readDraft()?.ownerKey !== target || (pending && binding !== pending)) return;
-      if (!port.readDraft()?.text.trim() || !port.canSubmit()) {
+      if (!port.readDraft()?.text.trim()) {
         pending?.invalidate();
+        return;
+      }
+      if (!port.canSubmit()) {
+        pending?.failed?.();
         return;
       }
       try {

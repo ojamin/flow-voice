@@ -147,7 +147,7 @@ after successful sends, stops, provider ends and recoverable speech errors. The 
 listening resets the count), with snapshot `failed: true`. Snapshot:
 `{ status: 'idle' | 'active', muted, failed, submissionFailure? }` (React: `useCallSession`). `setMuted(true)`
 stops capture without ending. `start()` unlocks audio, enables background playback (one
-continuously playing media element, so a phone keeps the call with the screen off) and starts
+continuously playing media element for supported background media behavior) and starts
 dictation before awaiting, which browsers require of a user gesture.
 
 A rejected submission ends the call immediately, without automatic recapture/retry. Its

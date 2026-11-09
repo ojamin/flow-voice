@@ -7,7 +7,7 @@ import {
   encodeSttServerMessage,
 } from '@flow-voice/core';
 import type { SttServerMessage } from '@flow-voice/core';
-import { createCallSession, createSpeechPlayer, createDictationController, createTextareaComposerAdapter } from '../index.js';
+import { createCallSession, createSpeechPlayer, createDictationController, createTextareaComposerAdapter, createEditorComposerAdapter } from '../index.js';
 import type {
   AudioCaptureOptions,
   DictationController,
@@ -24,6 +24,7 @@ afterEach(async () => {
 function fixture(
   autoSend?: DictationControllerOptions['autoSend'],
   options: Partial<DictationControllerOptions> = {},
+  adapter: 'textarea' | 'editor' = 'textarea',
 ) {
   const element = document.createElement('textarea');
   element.value = 'before after';
@@ -34,7 +35,26 @@ function fixture(
     submitted.push(element.value);
   });
   let allowed = true;
-  const composer = createTextareaComposerAdapter({ element, canSubmit: () => allowed, submit });
+  const settled = vi.fn(async () => {});
+  let ownerKey = 'chat-a';
+  let revision = 0;
+  const composer = adapter === 'textarea'
+    ? createTextareaComposerAdapter({ element, canSubmit: () => allowed, submit })
+    : createEditorComposerAdapter({
+      readDraft: () => ({ ownerKey, revision, text: element.value,
+        selection: { start: element.selectionStart, end: element.selectionEnd } }),
+      replace(draft, start, end, text, cursor) {
+        if (draft.ownerKey !== ownerKey || draft.revision !== revision) return false;
+        element.setRangeText(text, start, end);
+        element.setSelectionRange(cursor, cursor);
+        revision++;
+        return true;
+      },
+      subscribeDraftChanges: () => () => {},
+      settled,
+      canSubmit: () => allowed,
+      submit,
+    });
   let handlers!: Parameters<DictationTransport['connect']>[0];
   const emit = (event: SttServerMessage) =>
     handlers.onMessage(decodeSttServerMessage(encodeSttServerMessage(event)));
@@ -90,6 +110,12 @@ function fixture(
     submit,
     submitted,
     capture,
+    settled,
+    replaceDraft() {
+      composer.invalidate();
+      ownerKey = 'chat-b';
+      element.value = 'replacement draft';
+    },
     get captureOptions() {
       return captureOptions;
     },
@@ -114,6 +140,89 @@ const partial = (revision: number, committed: string, tentative: string): SttSer
 });
 
 describe('continuous dictation', () => {
+  it.each(['textarea', 'editor'] as const)('cancels manual %s Send without failure when ownership is lost', async (adapter) => {
+    const f = fixture(undefined, { stopAfterSend: false }, adapter);
+    f.deferEnd();
+    await f.controller.start();
+    const sending = f.composer.submit();
+    await vi.waitFor(() => expect(f.transport.send).toHaveBeenCalledWith({ type: 'stop' }));
+    f.replaceDraft();
+    f.setAllowed(false);
+    await sending;
+    expect(f.submit).not.toHaveBeenCalled();
+    expect(f.element.value).toBe('replacement draft');
+    expect(f.controller.getSnapshot()).toMatchObject({ status: 'idle', error: null });
+    expect(f.controller.getSnapshot().submissionFailure).toBeUndefined();
+    expect(f.capture).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['textarea', 'editor'] as const)('cancels empty manual %s Send without reporting admission failure', async (adapter) => {
+    const f = fixture(undefined, { stopAfterSend: false }, adapter);
+    f.element.value = '';
+    f.setFinal('');
+    f.setAllowed(false);
+    await f.controller.start();
+    await f.composer.submit();
+    expect(f.submit).not.toHaveBeenCalled();
+    expect(f.element.value).toBe('');
+    expect(f.controller.getSnapshot().status).toBe('idle');
+    expect(f.controller.getSnapshot().submissionFailure).toBeUndefined();
+  });
+
+  it.each(['textarea', 'editor'] as const)('ends a call when manual %s Send loses admission during finalization', async (adapter) => {
+    vi.useFakeTimers();
+    const f = fixture(undefined, { stopAfterSend: false }, adapter);
+    f.deferEnd();
+    const player = createSpeechPlayer({ synthesize: vi.fn() });
+    vi.spyOn(player, 'unlock').mockResolvedValue();
+    vi.spyOn(player, 'setBackgroundAudio').mockResolvedValue();
+    const call = createCallSession({ dictation: f.controller, player, mediaSession: null });
+    await call.start();
+    f.emit(partial(1, 'hello', ''));
+    const sending = f.composer.submit();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(f.transport.send).toHaveBeenCalledWith({ type: 'stop' });
+    f.setAllowed(false);
+    f.emit({ type: 'final', revision: 2, text: 'hello world' });
+    f.emit({ type: 'ended', reason: 'stopped' });
+    await sending;
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(f.submit).not.toHaveBeenCalled();
+    expect(call.getSnapshot()).toMatchObject({ status: 'idle', failed: true,
+      submissionFailure: { transcript: 'hello world', error: { code: 'transport_error' } } });
+    expect(f.element.value).toBe(adapter === 'textarea' ? 'before hello worldafter' : 'before hello world after');
+    expect(f.capture).toHaveBeenCalledTimes(1);
+    expect(f.controller.getSnapshot().status).not.toBe('finalizing');
+    call.dispose();
+    player.dispose();
+  });
+
+  it('ends a call when automatic editor Send loses admission while settled', async () => {
+    vi.useFakeTimers();
+    const f = fixture({ enabled: true, silenceMs: 500 }, { stopAfterSend: false }, 'editor');
+    let settle!: () => void;
+    f.settled.mockImplementation(() => new Promise<void>((resolve) => { settle = resolve; }));
+    const player = createSpeechPlayer({ synthesize: vi.fn() });
+    vi.spyOn(player, 'unlock').mockResolvedValue();
+    vi.spyOn(player, 'setBackgroundAudio').mockResolvedValue();
+    const call = createCallSession({ dictation: f.controller, player, mediaSession: null });
+    await call.start();
+    f.emit(partial(1, 'hello', ''));
+    await vi.advanceTimersByTimeAsync(600);
+    expect(f.settled).toHaveBeenCalledTimes(1);
+    f.setAllowed(false);
+    settle();
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(f.submit).not.toHaveBeenCalled();
+    expect(call.getSnapshot()).toMatchObject({ status: 'idle', failed: true,
+      submissionFailure: { transcript: 'hello world', error: { code: 'transport_error' } } });
+    expect(f.element.value).toBe('before hello world after');
+    expect(f.capture).toHaveBeenCalledTimes(1);
+    expect(f.controller.getSnapshot().status).not.toBe('finalizing');
+    call.dispose();
+    player.dispose();
+  });
+
   it.each(['automatic', 'manual'] as const)('does not recapture when a host reports failure before an early resolved return (%s)', async (mode) => {
     vi.useFakeTimers();
     const f = fixture({ enabled: true, silenceMs: 500 }, { stopAfterSend: false });
