@@ -1,10 +1,17 @@
+import type { SpeechError } from '@flow-voice/core';
 import type { DictationController, ExternalStore, SpeechPlayer } from './index.js';
 
+export interface CallSubmissionFailure {
+  /** Final unsent transcript, retained independently of composer/controller teardown. */
+  transcript: string;
+  error: SpeechError;
+}
 export interface CallSessionSnapshot {
   status: 'idle' | 'active';
   muted: boolean;
-  /** The last call ended because the microphone or speech service kept failing. */
+  /** The last call ended because capture, speech service, or message submission failed. */
   failed: boolean;
+  submissionFailure?: CallSubmissionFailure;
 }
 export type CallMediaAction = 'play' | 'pause' | 'nexttrack' | 'hangup' | 'togglemicrophone';
 export interface CallMediaSession {
@@ -34,6 +41,8 @@ export interface CallSession extends ExternalStore<CallSessionSnapshot> {
   setDictation(dictation: DictationController | null): void;
   /** Hang up: the microphone and Voice return to how they were before the call. */
   end(): void;
+  /** Terminal send failure, including host-side validation/submit early returns. No automatic retry. */
+  failSubmission(failure: CallSubmissionFailure): void;
   dispose(): void;
 }
 
@@ -78,6 +87,28 @@ export function createCallSession(options: CallSessionOptions): CallSession {
       catch { /* Browsers can reject individual unsupported actions. */ }
     }
   };
+  // A request can resolve after hide/end, or after a new call has acquired another lock.
+  let wakeOwner: { sentinel?: WakeLockSentinel } | undefined;
+  const releaseWakeLock = () => {
+    const previous = wakeOwner;
+    wakeOwner = undefined;
+    void previous?.sentinel?.release().catch(() => {});
+  };
+  const visibility = () => {
+    if (snapshot.status !== 'active' || globalThis.document?.visibilityState !== 'visible') {
+      releaseWakeLock();
+      return;
+    }
+    if (wakeOwner || !globalThis.navigator?.wakeLock) return;
+    const owner: { sentinel?: WakeLockSentinel } = {};
+    wakeOwner = owner;
+    void globalThis.navigator.wakeLock.request('screen').then((sentinel) => {
+      if (wakeOwner !== owner) void sentinel.release().catch(() => {});
+      else owner.sentinel = sentinel;
+    }).catch(() => {
+      if (wakeOwner === owner) wakeOwner = undefined;
+    });
+  };
   const shouldListen = () => snapshot.status === 'active' && !snapshot.muted && !disposed;
   const stopped = () => !dictation || ['idle', 'error'].includes(dictation.getSnapshot().status);
   async function listen() {
@@ -102,6 +133,11 @@ export function createCallSession(options: CallSessionOptions): CallSession {
     }
   }
   const onDictation = () => {
+    const failure = dictation?.getSnapshot().submissionFailure;
+    if (failure && snapshot.status === 'active') {
+      session.failSubmission(failure);
+      return;
+    }
     if (dictation?.getSnapshot().status === 'listening') {
       reachedListening = true;
       failures = 0;
@@ -111,10 +147,12 @@ export function createCallSession(options: CallSessionOptions): CallSession {
   };
   let unsubscribeDictation = dictation?.subscribe(onDictation);
   const unsubscribePlayer = player.subscribe(playback);
-  function finish(failed: boolean) {
+  function finish(failed: boolean, submissionFailure = snapshot.submissionFailure) {
     if (snapshot.status === 'idle') return;
     generation++;
-    publish({ status: 'idle', muted: false, failed });
+    releaseWakeLock();
+    globalThis.document?.removeEventListener('visibilitychange', visibility);
+    publish({ status: 'idle', muted: false, failed, submissionFailure });
     if (restoreDictation && !failed) {
       if (dictation && stopped()) void dictation.start().catch(() => {});
     } else void dictation?.cancel();
@@ -142,7 +180,9 @@ export function createCallSession(options: CallSessionOptions): CallSession {
       failures = 0;
       const status = dictation?.getSnapshot().status;
       restoreDictation = status === 'connecting' || status === 'listening';
-      publish({ status: 'active', muted: false, failed: false });
+      publish({ status: 'active', muted: false, failed: false, submissionFailure: undefined });
+      globalThis.document?.addEventListener('visibilitychange', visibility);
+      visibility();
       // All three calls happen in the gesture, before the first await.
       const capture = listen();
       const unlock = player.unlock();
@@ -173,6 +213,11 @@ export function createCallSession(options: CallSessionOptions): CallSession {
       if (shouldListen()) void listen();
     },
     end: () => finish(false),
+    failSubmission(failure) {
+      if (snapshot.status !== 'active') return;
+      // Capture the outcome before finish cancels a controller or the host unmounts its draft.
+      finish(true, failure);
+    },
     dispose() {
       finish(false);
       disposed = true;

@@ -12,7 +12,7 @@ import type { PlaybackGate } from './player/gate.js';
 export { createCallSession } from './call-session.js';
 export { createSpeechSession, supportedDictationRate } from './speech-session.js';
 export type { SpeechSession, SpeechSessionConfig, ComposerSpeech, ComposerSpeechOptions } from './speech-session.js';
-export type { CallSession, CallSessionOptions, CallSessionSnapshot, CallMediaSession, CallMediaAction } from './call-session.js';
+export type { CallSession, CallSessionOptions, CallSessionSnapshot, CallSubmissionFailure, CallMediaSession, CallMediaAction } from './call-session.js';
 export { createVoiceMode, isVoiceOnFor, readingChatOf } from './voice-mode.js';
 export type { VoiceMode, VoiceModeSnapshot, VoiceScope } from './voice-mode.js';
 export interface ExternalStore<T> {
@@ -72,6 +72,7 @@ export interface ComposerAdapter {
   subscribeUserActivity?(listener: () => void): () => void;
 }
 export interface DictationSnapshot {
+  submissionFailure?: import('./call-session.js').CallSubmissionFailure;
   status: 'idle' | 'connecting' | 'listening' | 'finalizing' | 'error';
   committed: string;
   tentative: string;

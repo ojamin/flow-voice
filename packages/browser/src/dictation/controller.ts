@@ -20,7 +20,6 @@ type Session = {
   timers: ReturnType<typeof setTimeout>[];
   unbind(): void;
   unsubscribe(): void;
-  lastWordAt: number;
   lastSoundAt: number;
   autoCancelled: boolean;
   sending: boolean;
@@ -37,6 +36,7 @@ const initial: DictationSnapshot = {
   rms: 0,
   countdownMs: null,
   error: null,
+  submissionFailure: undefined,
 };
 
 export function createDictationController(
@@ -80,11 +80,15 @@ export function createDictationController(
   const submissionFailure = (s: Session) => {
     if (s.failure || session !== s || disposed) return;
     cleanup(s);
+    const error: SpeechError = {
+      code: 'transport_error',
+      message: 'Your message could not be sent. Your draft has been kept. Try Send again.',
+    };
+    s.failure = error;
     publish({
-      status: 'error',
-      error: {
-        code: 'transport_error',
-        message: 'Your message could not be sent. Your draft has been kept. Try Send again.',
+      status: 'error', error,
+      submissionFailure: {
+        transcript: [snapshot.committed, snapshot.tentative].filter(Boolean).join(' '), error,
       },
     });
   };
@@ -94,8 +98,6 @@ export function createDictationController(
   };
   const apply = (s: Session, committed: string, tentative: string) => {
     if (!current(s)) return;
-    if (committed !== snapshot.committed || tentative !== snapshot.tentative)
-      s.lastWordAt = Date.now();
     publish({ committed, tentative });
     options.composer.update({ committed, tentative });
   };
@@ -152,9 +154,12 @@ export function createDictationController(
       if (keyword && options.autoSend?.keyword)
         text = matchSendKeyword(text, options.autoSend.keyword).text;
       if (!text.trim()) return;
-      if (!options.composer.canSubmit()) return;
+      if (!options.composer.canSubmit()) {
+        submissionFailure(s);
+        return;
+      }
       await options.composer.submit();
-      if (!disposed && session === s) {
+      if (!disposed && session === s && !s.failure) {
         publish({ status: 'idle' });
         if (options.stopAfterSend === false) await controller.start();
       }
@@ -257,8 +262,7 @@ export function createDictationController(
         timers: [],
         unbind: () => {},
         unsubscribe: () => {},
-        lastWordAt: Date.now(),
-        lastSoundAt: 0,
+        lastSoundAt: Date.now(),
         autoCancelled: false,
         sending: false,
         stopped: false,
@@ -348,6 +352,18 @@ export function createDictationController(
             if (!current(s) || s.stopped) return;
             if (rms > 0.025) s.lastSoundAt = Date.now();
             publish({ rms });
+            // Only an actual capture frame can establish acoustic silence.
+            if (
+              snapshot.status === 'listening' &&
+              options.autoSend?.enabled &&
+              options.autoSend.afterPause !== false &&
+              !s.autoCancelled && !s.sending &&
+              [snapshot.committed, snapshot.tentative].join('').trim()
+            ) {
+              const remaining = Math.max(0, options.autoSend.silenceMs - (Date.now() - s.lastSoundAt));
+              publish({ countdownMs: options.composer.canSubmit() ? remaining : null });
+              if (remaining === 0 && options.composer.canSubmit()) void autoSubmit(s, false);
+            }
             // Bound the host queue even when a custom transport has slow admission.
             queuedBytes += audio.byteLength;
             if (queuedBytes > DEFAULT_LIMITS.maxBufferedAudioBytes) {
@@ -388,31 +404,6 @@ export function createDictationController(
               void finishSession(s).catch(() => {});
             }, sessionMs),
           );
-        const tick = () => {
-          if (!current(s) || snapshot.status !== 'listening') return;
-          if (
-            options.autoSend?.enabled &&
-            options.autoSend.afterPause !== false &&
-            !s.autoCancelled &&
-            !s.sending &&
-            [snapshot.committed, snapshot.tentative].join('').trim()
-          ) {
-            const remaining = Math.max(0, options.autoSend.silenceMs - (Date.now() - s.lastWordAt));
-            publish({ countdownMs: options.composer.canSubmit() ? remaining : null });
-            // RMS only defers briefly; steady noise cannot restart the word-based clock.
-            if (
-              remaining === 0 &&
-              (Date.now() - s.lastSoundAt > 250 ||
-                Date.now() - s.lastWordAt > options.autoSend.silenceMs + 500) &&
-              options.composer.canSubmit()
-            )
-              void autoSubmit(s, false);
-          }
-          s.timers.push(setTimeout(tick, 100));
-          // Keep timer bookkeeping bounded for long sessions.
-          if (s.timers.length > 16) s.timers.splice(2, s.timers.length - 4);
-        };
-        tick();
       } catch (cause) {
         if (current(s))
           fail(
@@ -440,8 +431,11 @@ export function createDictationController(
       cancelAutoSend();
       if (!s) return;
       if (!current(s)) {
+        // Capture may already be finalized while a host submit is still pending.
+        session = undefined;
         s.unbind();
         s.unsubscribe();
+        if (snapshot.status === 'finalizing') publish({ status: 'idle', rms: 0, countdownMs: null });
         return;
       }
       // Invalidate before awaiting anything: late events cannot change the draft.
@@ -449,6 +443,7 @@ export function createDictationController(
       void options.transport.send({ type: 'cancel' }).catch(() => {});
       options.composer.cancel();
       cleanup(s);
+      session = undefined;
       publish({ status: 'idle', tentative: '', rms: 0, countdownMs: null });
       await s.capture?.stop();
     },

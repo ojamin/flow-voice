@@ -2,7 +2,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { DEFAULT_DICTATION_PREFERENCE, type SttServerMessage } from '@flow-voice/core';
 import { createAutoReader, createSpeechSession, createTextareaComposerAdapter, readAloud, supportedDictationRate,
-  type DictationTransport, type SpeechSessionConfig } from './index.js';
+  type AudioCaptureOptions, type DictationTransport, type SpeechSessionConfig } from './index.js';
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -37,10 +37,11 @@ function fixture(tts = true) {
   }));
   const capture = { start: vi.fn(async () => {}), stop: vi.fn(async () => {}) };
   const changed = vi.fn();
+  let captureOptions!: AudioCaptureOptions;
   const session = createSpeechSession({
     synthesize: async () => ({ stream: new ReadableStream(), mimeType: 'audio/pcm',
       format: { kind: 'pcm', encoding: 'pcm_s16le', sampleRate: 24000, channels: 1 } }),
-    createTransport, capture: () => capture, workletUrl: '/worklet.js', onConversationChange: changed,
+    createTransport, capture: (options) => { captureOptions = options; return capture; }, workletUrl: '/worklet.js', onConversationChange: changed,
   });
   cleanups.push(() => session.dispose());
   const element = document.createElement('textarea');
@@ -56,6 +57,7 @@ function fixture(tts = true) {
   });
   return { session, config, capture, element, composer, submitted, changed, createTransport, bind,
     emit: (message: SttServerMessage) => receive(message),
+    frame: (rms: number) => captureOptions.onFrame(new Uint8Array([0, 0]), rms),
     preferences: (next: typeof preferences) => { preferences = next; } };
 }
 
@@ -159,7 +161,10 @@ it('reads latest preferences without rebuilding the controller', async () => {
   await binding.dictation.start();
   f.preferences({ ...DEFAULT_DICTATION_PREFERENCE, sendAfterPause: true, silenceMs: 300, stopAfterSend: true });
   f.emit({ type: 'partial', revision: 1, committed: 'hello', tentative: '' });
-  await vi.advanceTimersByTimeAsync(700);
+  f.frame(0.2);
+  await vi.advanceTimersByTimeAsync(300);
+  f.frame(0);
+  await vi.advanceTimersByTimeAsync(1);
   expect(f.submitted).toHaveBeenCalledOnce();
   expect(binding.dictation.getSnapshot().status).toBe('idle');
   expect(f.createTransport).toHaveBeenCalledOnce();

@@ -109,10 +109,15 @@ replacing the draft, switching conversation or navigating; it stops without touc
 the replacement draft. Dispose the textarea adapter when its element is removed.
 
 Auto-send defaults off. Enable with `{ enabled: true, silenceMs, keyword? }`.
-Changed transcript text resets its word clock; repeated hypotheses and PCM frames
-do not. RMS can defer a send briefly, but background noise cannot reset the word
-clock indefinitely. Nonempty text shows a cancellable countdown; on expiry the
-controller finishes, rechecks canSubmit, and submits once. A trailing committed
+Pause-send waits the full `silenceMs` since the last frame with RMS above 0.025.
+Actual capture frames update its countdown and trigger sending; absent frames alone
+never send. Stale/repeated transcript text and short breaths do not force sending;
+steady speech/noise defers it. Nonempty text shows a cancellable countdown; on expiry
+the controller finishes, rechecks canSubmit, and submits once. Rejection (or lost
+submission admission after finalization) retains the draft and publishes a terminal
+`submissionFailure: { transcript, error }`; a bound call ends without recapturing.
+Custom send flows must reject failures or explicitly report them to
+`call.failSubmission({ transcript, error })`, not silently resolve an early return. A trailing committed
 keyword uses the core normalization/strip helper and finishes immediately; a
 keyword-only transcript never submits. Typing, any composer keydown, manual Send,
 `notifyUserActivity()` or `cancelAutoSend()` cancels auto-send for that session,

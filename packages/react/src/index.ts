@@ -5,6 +5,7 @@ export type { SpeechControlSlots, SpeechControlAppearance } from './controls.js'
 export { VoiceSelect, type VoiceSelectProps, type VoiceChoiceState } from './VoiceSelect.js';
 export { VoiceControls, type VoiceControlsProps } from './VoiceControls.js';
 export { CallControls, type CallControlsProps } from './CallControls.js';
+export { CallScreenLock, type CallScreenLockProps } from './CallScreenLock.js';
 export { SpeechPreferencesForm, type SpeechPreferencesFormProps } from './SpeechPreferencesForm.js';
 export { SpeechEndpointForm, type SpeechEndpointFormProps, type SpeechEndpointTestResult } from './SpeechEndpointForm.js';
 /** Hooks subscribe to host-owned stores; controller/player lifecycle is owned by the host. */

@@ -92,7 +92,7 @@ export function CallControls({ call, disabled, labels, slots, className }: CallC
       )}
       {(error || state.failed) && (
         <span role="alert">
-          {error ||
+          {error || state.submissionFailure?.error.message ||
             'The call ended after repeated microphone or speech service failures. Try again.'}
         </span>
       )}

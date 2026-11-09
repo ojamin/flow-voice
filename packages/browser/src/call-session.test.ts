@@ -183,6 +183,24 @@ it('follows the chat\'s composer across remounts, waiting while none is mounted'
   expect(f.dictation.cancel).not.toHaveBeenCalled();
 });
 
+it('retains a host-reported terminal send failure through teardown and clears it on a new call', async () => {
+  const f = fixture();
+  await f.session.start();
+  const failure = { transcript: 'unsent words', error: { code: 'transport_error' as const, message: 'Send failed' } };
+  f.session.failSubmission(failure);
+  expect(f.session.getSnapshot()).toMatchObject({ status: 'idle', failed: true, submissionFailure: failure });
+  expect(f.dictation.cancel).toHaveBeenCalledTimes(1);
+  await Promise.resolve();
+  expect(f.dictation.start).toHaveBeenCalledTimes(1);
+  f.session.end();
+  f.session.setDictation(null);
+  expect(f.session.getSnapshot().submissionFailure).toEqual(failure);
+  await f.session.start();
+  expect(f.session.getSnapshot().submissionFailure).toBeUndefined();
+  expect(f.session.getSnapshot().failed).toBe(false);
+  f.session.dispose();
+});
+
 it('shows the call in the system controls with the host\'s metadata', async () => {
   vi.stubGlobal('MediaMetadata', class { constructor(init: MediaMetadataInit) { Object.assign(this, init); } });
   const media: CallMediaSession = { playbackState: 'none', metadata: null, setActionHandler: vi.fn() };

@@ -388,12 +388,18 @@ it('owns call start rejection cleanup, retry, mute, end and failed state', async
   const call: CallSession = {
     ...state,
     start: vi.fn(() => attempt.promise),
+    failSubmission: vi.fn(),
     end: vi.fn(),
     setMuted: vi.fn(),
     setDictation: vi.fn(),
     dispose: vi.fn(),
   };
   render(<CallControls call={call} slots={slots} />);
+  act(() => state.publish({ status: 'idle', muted: false, failed: true, submissionFailure: {
+    transcript: 'retained words', error: { code: 'transport_error', message: 'Unsent draft retained' },
+  } }));
+  expect(screen.getByRole('alert').textContent).toBe('Unsent draft retained');
+  act(() => state.publish({ status: 'idle', muted: false, failed: false }));
   await user.dblClick(screen.getByRole('button', { name: 'Call' }));
   expect(call.start).toHaveBeenCalledOnce();
   await act(async () => attempt.reject(new Error('Permission denied.')));
@@ -547,6 +553,7 @@ it('ignores a late start failure after the user has ended the call', async () =>
       state.publish({ status: 'active', muted: false, failed: false });
       return attempt.promise;
     }),
+    failSubmission: vi.fn(),
     end: vi.fn(() => state.publish({ status: 'idle', muted: false, failed: false })),
     setMuted: vi.fn(),
     setDictation: vi.fn(),
@@ -651,6 +658,7 @@ it('keeps active-call cleanup available when new-call admission is disabled', as
   const call: CallSession = {
     ...state,
     start: vi.fn(),
+    failSubmission: vi.fn(),
     end: vi.fn(),
     setMuted: vi.fn(),
     setDictation: vi.fn(),

@@ -7,7 +7,7 @@ import {
   encodeSttServerMessage,
 } from '@flow-voice/core';
 import type { SttServerMessage } from '@flow-voice/core';
-import { createDictationController, createTextareaComposerAdapter } from '../index.js';
+import { createCallSession, createSpeechPlayer, createDictationController, createTextareaComposerAdapter } from '../index.js';
 import type {
   AudioCaptureOptions,
   DictationController,
@@ -56,9 +56,20 @@ function fixture(
   };
   let captureOptions!: AudioCaptureOptions;
   const stop = vi.fn(async () => {});
+  let frames = true;
+  let rms = 0;
   const capture = vi.fn((value: AudioCaptureOptions) => {
     captureOptions = value;
-    return { start: async () => {}, stop };
+    let timer: ReturnType<typeof setInterval>;
+    return {
+      start: async () => {
+        if (autoSend?.enabled) timer = setInterval(() => {
+          if (frames) value.onFrame(new Uint8Array([0, 0]), rms);
+        }, 20);
+        value.signal.addEventListener('abort', () => clearInterval(timer), { once: true });
+      },
+      stop: async () => { clearInterval(timer); await stop(); },
+    };
   });
   const controller = createDictationController({
     composer,
@@ -82,6 +93,8 @@ function fixture(
     get captureOptions() {
       return captureOptions;
     },
+    setRms(value: number) { rms = value; },
+    setFrames(value: boolean) { frames = value; },
     setFinal(value: string) {
       final = value;
     },
@@ -101,6 +114,51 @@ const partial = (revision: number, committed: string, tentative: string): SttSer
 });
 
 describe('continuous dictation', () => {
+  it.each(['automatic', 'manual'] as const)('does not recapture when a host reports failure before an early resolved return (%s)', async (mode) => {
+    vi.useFakeTimers();
+    const f = fixture({ enabled: true, silenceMs: 500 }, { stopAfterSend: false });
+    const player = createSpeechPlayer({ synthesize: vi.fn() });
+    vi.spyOn(player, 'unlock').mockResolvedValue();
+    vi.spyOn(player, 'setBackgroundAudio').mockResolvedValue();
+    const call = createCallSession({ dictation: f.controller, player, mediaSession: null });
+    f.submit.mockImplementation(async () => {
+      call.failSubmission({ transcript: 'hello world', error: { code: 'transport_error', message: 'Send unavailable' } });
+    });
+    await call.start();
+    f.emit(partial(1, 'hello world', ''));
+    if (mode === 'manual') await f.composer.submit();
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(call.getSnapshot()).toMatchObject({ status: 'idle', failed: true, submissionFailure: { transcript: 'hello world' } });
+    expect(f.capture).toHaveBeenCalledTimes(1);
+    expect(f.submit).toHaveBeenCalledTimes(1);
+    expect(f.element.value).toBe('before hello worldafter');
+    expect(f.controller.getSnapshot().status).not.toBe('finalizing');
+    call.dispose();
+    player.dispose();
+  });
+  it('ends a call on rejected submit without recapture, retaining the terminal transcript and error', async () => {
+    vi.useFakeTimers();
+    const f = fixture({ enabled: true, silenceMs: 500 }, { stopAfterSend: false });
+    f.submit.mockRejectedValue(new Error('offline'));
+    const player = createSpeechPlayer({ synthesize: vi.fn() });
+    vi.spyOn(player, 'unlock').mockResolvedValue();
+    vi.spyOn(player, 'setBackgroundAudio').mockResolvedValue();
+    const call = createCallSession({ dictation: f.controller, player, mediaSession: null });
+    await call.start();
+    f.emit(partial(1, 'hello world', ''));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(call.getSnapshot()).toMatchObject({
+      status: 'idle', failed: true,
+      submissionFailure: { transcript: 'hello world', error: { code: 'transport_error' } },
+    });
+    expect(f.element.value).toBe('before hello worldafter');
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(f.capture).toHaveBeenCalledTimes(1);
+    expect(f.submit).toHaveBeenCalledTimes(1);
+    call.dispose();
+    expect(call.getSnapshot().submissionFailure?.transcript).toBe('hello world');
+    player.dispose();
+  });
   it('does not restart if invalidated while automatic Send is pending', async () => {
     const f = fixture({ enabled: true, silenceMs: 100, keyword: 'send' }, { stopAfterSend: false });
     let resolve!: () => void;
@@ -273,7 +331,38 @@ describe('dictation transaction', () => {
 });
 
 describe('auto send', () => {
-  it('counts words, not frames or repeated hypotheses, then sends once', async () => {
+  it('waits for a full acoustic pause despite stale text and a short breath', async () => {
+    vi.useFakeTimers();
+    const f = fixture({ enabled: true, silenceMs: 1000 });
+    f.setRms(0.2);
+    await f.controller.start();
+    f.emit(partial(1, 'hello', ''));
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(f.submit).not.toHaveBeenCalled();
+    f.setRms(0);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(f.submit).not.toHaveBeenCalled();
+    f.setRms(0.2);
+    await vi.advanceTimersByTimeAsync(200);
+    f.setRms(0);
+    await vi.advanceTimersByTimeAsync(980);
+    expect(f.submit).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(40);
+    expect(f.submit).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(f.submit).toHaveBeenCalledTimes(1);
+  });
+  it('does not treat absent capture frames as evidence of silence', async () => {
+    vi.useFakeTimers();
+    const f = fixture({ enabled: true, silenceMs: 500 });
+    await f.controller.start();
+    f.emit(partial(1, 'hello', ''));
+    await vi.advanceTimersByTimeAsync(100);
+    f.setFrames(false);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(f.submit).not.toHaveBeenCalled();
+  });
+  it('ignores repeated hypotheses during acoustic silence, then sends once', async () => {
     vi.useFakeTimers();
     const f = fixture({ enabled: true, silenceMs: 1000 });
     await f.controller.start();
@@ -331,6 +420,21 @@ describe('auto send', () => {
     f.emit(partial(1, 'send', ''));
     await vi.waitFor(() => expect(f.controller.getSnapshot().status).toBe('idle'));
     expect(f.submit).not.toHaveBeenCalled();
+  });
+  it('reports a terminal failure if submission admission is lost during finalization', async () => {
+    vi.useFakeTimers();
+    const f = fixture({ enabled: true, silenceMs: 500 });
+    f.deferEnd();
+    await f.controller.start();
+    f.emit(partial(1, 'hello', ''));
+    await vi.advanceTimersByTimeAsync(600);
+    f.setAllowed(false);
+    f.emit({ type: 'final', revision: 2, text: 'hello' });
+    f.emit({ type: 'ended', reason: 'stopped' });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(f.submit).not.toHaveBeenCalled();
+    expect(f.controller.getSnapshot()).toMatchObject({ status: 'error', submissionFailure: { transcript: 'hello' } });
+    expect(f.element.value).toBe('before helloafter');
   });
   it('typing during finalization cancels a pending auto-send', async () => {
     vi.useFakeTimers();

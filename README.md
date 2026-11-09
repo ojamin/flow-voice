@@ -142,13 +142,28 @@ language? })` passes the optional synthesis preferences to the player.
 
 ### Calls
 
-A call keeps the microphone open and sends on its own: capture restarts after stops, provider
-ends and errors, and the call ends after three consecutive start failures (`maxFailures`;
+A call sends on its own in successive capture turns (not gapless recording): capture restarts
+after successful sends, stops, provider ends and recoverable speech errors. The call ends after three consecutive start failures (`maxFailures`;
 listening resets the count), with snapshot `failed: true`. Snapshot:
-`{ status: 'idle' | 'active', muted, failed }` (React: `useCallSession`). `setMuted(true)`
+`{ status: 'idle' | 'active', muted, failed, submissionFailure? }` (React: `useCallSession`). `setMuted(true)`
 stops capture without ending. `start()` unlocks audio, enables background playback (one
 continuously playing media element, so a phone keeps the call with the screen off) and starts
 dictation before awaiting, which browsers require of a user gesture.
+
+A rejected submission ends the call immediately, without automatic recapture/retry. Its
+`submissionFailure: { transcript, error }` survives end, composer detach and disposal until
+an explicit new `start()`. The composer also keeps its unsent draft. For custom send flows,
+throw on failure or call `call.failSubmission({ transcript, error })` before returning early;
+do not report an unsuccessful send as resolved success. This method owns hangup and retains
+the outcome before cancellation/host teardown. Keep failed-call feedback mounted outside
+active-only controls, and render the retained transcript if the host clears its call draft
+on end. `CallControls` renders the retained error even while idle; it does not render a draft
+editor. No channel state or authentication logic belongs in this outcome.
+
+The browser call owner requests a screen wake lock while active and visible, releases it on
+hidden/end/dispose, and explicitly reacquires on visible. Unsupported/denied requests are
+nonfatal; requests resolving after teardown are immediately released. This is a foreground
+workaround, not a guarantee of capture with the physical screen off or the app backgrounded.
 
 **Hanging up restores what was there before the call**: dictation keeps listening if it was on
 when the call started and stops otherwise, and `onVoiceChange`'s returned callback (for example
@@ -162,6 +177,11 @@ mutes; `setMicrophoneActive` and `metadata` are set while active. Do not attach 
 playback gate during calls: calls capture and play together, relying on echo cancellation.
 
 ### Continuous dictation
+
+Pause-send uses the full configured `silenceMs` since the last acoustic sound, evaluated on
+actual capture frames. Stale/repeated text never forces a send; a short breath does not send,
+and absent frames alone cannot trigger submission. Keyword-send and user cancellation are
+unchanged. Steady sound/noise above the existing RMS threshold defers pause-send.
 
 `stopAfterSend: false` starts a fresh session after manual or automatic Send succeeds and the
 host has cleared the draft (the default, true, stops). Empty drafts never auto-send; custom
@@ -517,6 +537,20 @@ onOpenChange })` adapts an existing popover: forward the complete trigger props 
 render the supplied labelled content, preserving focus/keyboard behavior. The
 native default is an inline disclosure with Escape returning focus to the trigger.
 `labels` can override Voice/options/scope wording without rewriting decisions.
+
+#### CallScreenLock
+
+Mount `<CallScreenLock call={call} />` once beside the call controls, outside any host modal.
+It renders an entry button only while active and a black viewport cover when locked. The
+call keeps running. Native `dialog.showModal()` supplies top-layer rendering, focus
+containment, and inert background; Escape/backdrop do not unlock. Touch/pointer unlock
+requires starting on the primary thumb, dragging at least 90% of its track and releasing
+at the far endpoint. Track taps, short slides, cancellation and extra fingers stay locked.
+Keyboard and assistive-technology users deliberately activate the focused “Unlock call
+screen” button. Ending/replacing the call or unmounting tears down the cover and gesture;
+a new call starts unlocked. No fullscreen API, settings, CSS import, or host UI dependency
+is needed. This is a pocket cover, not an OS/security lock. Requires native modal dialog
+support in the host browser (current evergreen browsers).
 
 #### CallControls
 
