@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { Editor, Extension, Mark, Node } from '@tiptap/core';
 import { history, undo, redo } from '@tiptap/pm/history';
 import { Plugin } from '@tiptap/pm/state';
-import { createDictationController, type DictationController, type DictationTransport } from './index.js';
+import { createDictationController, type AudioCaptureOptions, type DictationController, type DictationTransport } from './index.js';
 import type { SttServerMessage } from '@flow-voice/core';
 import { createTiptapComposerAdapter } from './tiptap.js';
 
@@ -274,6 +274,7 @@ it.each(['silence', 'keyword'])('auto-sends exactly once through normal submit (
   vi.useFakeTimers();
   const { adapter, editor, sent } = setup('<p></p>', true);
   let receive!: (message: SttServerMessage) => void;
+  let captureOptions!: AudioCaptureOptions;
   const transport: DictationTransport = {
     connect: async (options) => { receive = options.onMessage; },
     send: async (message) => {
@@ -287,7 +288,10 @@ it.each(['silence', 'keyword'])('auto-sends exactly once through normal submit (
   };
   const controller = createDictationController({
     composer: adapter, transport,
-    capture: () => ({ start: async () => {}, stop: async () => {} }),
+    capture: (options) => {
+      captureOptions = options;
+      return { start: async () => {}, stop: async () => {} };
+    },
     audio: { encoding: 'pcm_s16le', channels: 1, sampleRate: 16000 },
     stopAfterSend: false,
     autoSend: { enabled: true, silenceMs: 500, keyword: 'send now', afterPause: mode !== 'keyword' },
@@ -295,7 +299,17 @@ it.each(['silence', 'keyword'])('auto-sends exactly once through normal submit (
   controllers.push(controller);
   await controller.start();
   receive({ type: 'partial', revision: 1, committed: mode === 'keyword' ? 'hello send now' : 'hello', tentative: '' });
-  await vi.advanceTimersByTimeAsync(1500);
+  if (mode === 'silence') {
+    await vi.advanceTimersByTimeAsync(1000);
+    captureOptions.onFrame(new Uint8Array([1, 0]), 0.2);
+    await vi.advanceTimersByTimeAsync(499);
+    captureOptions.onFrame(new Uint8Array([0, 0]), 0);
+    expect(controller.getSnapshot().countdownMs).toBe(1);
+    expect(sent).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    captureOptions.onFrame(new Uint8Array([0, 0]), 0);
+  }
+  await vi.advanceTimersByTimeAsync(0);
   expect(sent).toEqual(['hello']);
   await vi.advanceTimersByTimeAsync(5000);
   expect(sent).toHaveLength(1);
