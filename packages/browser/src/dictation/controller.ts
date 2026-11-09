@@ -22,6 +22,8 @@ type Session = {
   unsubscribe(): void;
   lastSoundAt: number;
   autoCancelled: boolean;
+  rearmPause: boolean;
+  pauseDraft: boolean;
   sending: boolean;
   submission?: boolean;
   stopped: boolean;
@@ -96,6 +98,14 @@ export function createDictationController(
     if (session) session.autoCancelled = true;
     if (snapshot.countdownMs !== null) publish({ countdownMs: null });
   };
+  const notifyUserActivity = () => {
+    const s = session;
+    if (options.activityPolicy !== 'postpone') return cancelAutoSend();
+    if (!s || s.autoCancelled) return;
+    s.lastSoundAt = Date.now();
+    if (s.sending) s.rearmPause = true;
+    if (snapshot.countdownMs !== null) publish({ countdownMs: null });
+  };
   const apply = (s: Session, committed: string, tentative: string) => {
     if (!current(s)) return;
     publish({ committed, tentative });
@@ -147,13 +157,20 @@ export function createDictationController(
     if (s.sending || s.autoCancelled || !current(s)) return;
     s.sending = true;
     s.keyword = keyword;
+    let rearmPause = false;
     try {
       await finishSession(s);
       if (s.failure || disposed || session !== s || s.autoCancelled) return;
+      if (s.rearmPause) {
+        // Finalization consumed the single-use capture. Keep the finalized draft,
+        // but require new acoustic evidence before another automatic attempt.
+        rearmPause = true;
+        return;
+      }
       let text = [snapshot.committed, snapshot.tentative].filter(Boolean).join(' ');
       if (keyword && options.autoSend?.keyword)
         text = matchSendKeyword(text, options.autoSend.keyword).text;
-      if (!text.trim()) return;
+      if (!text.trim() && !s.pauseDraft) return;
       if (!options.composer.canSubmit()) {
         submissionFailure(s);
         return;
@@ -166,10 +183,15 @@ export function createDictationController(
     } catch {
       submissionFailure(s);
     } finally {
-      s.unbind();
-      s.unsubscribe();
-      if (session === s && snapshot.status === 'finalizing' && !s.failure)
-        publish({ status: 'idle' });
+      // A manual Send can take over a postponed attempt while finalization is pending.
+      if (!s.submission) {
+        s.unbind();
+        s.unsubscribe();
+        if (rearmPause && session === s && !s.autoCancelled && !s.failure && !disposed)
+          await startSession(true);
+        else if (session === s && snapshot.status === 'finalizing' && !s.failure)
+          publish({ status: 'idle' });
+      }
     }
   };
   const onMessage = (s: Session, message: SttServerMessage) => {
@@ -232,15 +254,7 @@ export function createDictationController(
       }
     }
   };
-  const controller: DictationController = {
-    getSnapshot: () => snapshot,
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    cancelAutoSend,
-    notifyUserActivity: cancelAutoSend,
-    async start() {
+  const startSession = async (pauseDraft = false) => {
       if (disposed) throw new Error('Dictation controller is disposed');
       if (session?.valid) return;
       let resolveReady!: () => void;
@@ -264,6 +278,8 @@ export function createDictationController(
         unsubscribe: () => {},
         lastSoundAt: Date.now(),
         autoCancelled: false,
+        rearmPause: false,
+        pauseDraft,
         sending: false,
         stopped: false,
       };
@@ -274,7 +290,8 @@ export function createDictationController(
         s.unbind = options.composer.bindSubmission({
           failed: () => submissionFailure(s),
           finish: () => {
-            if (s.sending) return finishSession(s);
+            if (s.sending && !s.rearmPause) return finishSession(s);
+            s.sending = false;
             cancelAutoSend();
             s.submission = true;
             return finishSession(s);
@@ -299,7 +316,7 @@ export function createDictationController(
           },
         });
         const unsubscribeActivity =
-          options.composer.subscribeUserActivity?.(cancelAutoSend) ?? (() => {});
+          options.composer.subscribeUserActivity?.(notifyUserActivity) ?? (() => {});
         const pagehide = () => {
           void controller.cancel();
         };
@@ -358,7 +375,7 @@ export function createDictationController(
               options.autoSend?.enabled &&
               options.autoSend.afterPause !== false &&
               !s.autoCancelled && !s.sending &&
-              [snapshot.committed, snapshot.tentative].join('').trim()
+              (s.pauseDraft || [snapshot.committed, snapshot.tentative].join('').trim())
             ) {
               const remaining = Math.max(0, options.autoSend.silenceMs - (Date.now() - s.lastSoundAt));
               publish({ countdownMs: options.composer.canSubmit() ? remaining : null });
@@ -396,6 +413,7 @@ export function createDictationController(
         };
         await Promise.race([s.capture.start(), s.done]);
         if (!current(s) || snapshot.status !== 'connecting') return;
+        if (s.pauseDraft) s.lastSoundAt = Date.now();
         publish({ status: 'listening' });
         const sessionMs = options.maxSessionMs ?? DEFAULT_LIMITS.maxSessionMs;
         if (sessionMs <= MAX_TIMER_MS)
@@ -421,7 +439,16 @@ export function createDictationController(
                 },
           );
       }
+  };
+  const controller: DictationController = {
+    getSnapshot: () => snapshot,
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
     },
+    cancelAutoSend,
+    notifyUserActivity,
+    start: () => startSession(),
     async finish() {
       cancelAutoSend();
       if (session) await finishSession(session);

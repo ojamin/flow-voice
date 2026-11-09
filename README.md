@@ -142,6 +142,24 @@ language? })` passes the optional synthesis preferences to the player.
 
 ### Calls
 
+For editable call drafts, opt in with `createDictationController({ ..., activityPolicy: 'postpone' })`.
+The default (`'cancel'`) still cancels automatic sending for the turn on native input/key activity
+or `notifyUserActivity()`. With `'postpone'`, activity resets the pause deadline instead: the
+controller requires a full `autoSend.silenceMs` of acoustic silence after the latest sound or
+activity and submits the **whole composer draft**, including edits and pretyped text. Programmatic
+transcript updates do not reset the pause. Activity during automatic finalization retires that
+attempt; once finalization finishes, the controller retains the draft and reacquires the microphone
+to establish a fresh full pause, even if no further speech arrives. No host timer or rearm call is
+needed. This does not revoke an already admitted host submission. `cancelAutoSend()`, manual
+Send, `finish()`, `cancel()`, invalidation, call mute and End retain their cancellation behavior;
+activity never reverses explicit cancellation. Keyword behavior remains immediate when configured.
+
+For session-owned controllers use `session.bindComposer(composer, { ..., callActivityPolicy:
+'postpone' })`, or `useComposerSpeech({ ..., callActivityPolicy: 'postpone' })` in React. This
+applies the policy only while the bound call is active, leaving ordinary dictation unchanged.
+`createCallSession` receives an existing controller; configure that controller directly when not
+using `bindComposer`.
+
 A call sends on its own in successive capture turns (not gapless recording): capture restarts
 after successful sends, stops, provider ends and recoverable speech errors. The call ends after three consecutive start failures (`maxFailures`;
 listening resets the count), with snapshot `failed: true`. Snapshot:

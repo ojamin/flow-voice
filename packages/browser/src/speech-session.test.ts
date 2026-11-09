@@ -52,8 +52,8 @@ function fixture(tts = true) {
     stt: { enabled: true, sampleRates: [123, 24000], defaults: {} }, tts: { enabled: tts },
   };
   let preferences = { ...DEFAULT_DICTATION_PREFERENCE };
-  const bind = () => session.bindComposer(composer, {
-    config: () => config, preferences: () => preferences, activityTarget: document,
+  const bind = (callActivityPolicy?: 'cancel' | 'postpone') => session.bindComposer(composer, {
+    config: () => config, preferences: () => preferences, activityTarget: document, callActivityPolicy,
   });
   return { session, config, capture, element, composer, submitted, changed, createTransport, bind,
     emit: (message: SttServerMessage) => receive(message),
@@ -168,6 +168,31 @@ it('reads latest preferences without rebuilding the controller', async () => {
   expect(f.submitted).toHaveBeenCalledOnce();
   expect(binding.dictation.getSnapshot().status).toBe('idle');
   expect(f.createTransport).toHaveBeenCalledOnce();
+});
+
+it('opts in to postponement only during calls, retaining ordinary dictation cancellation', async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  f.preferences({ ...DEFAULT_DICTATION_PREFERENCE, sendAfterPause: true, silenceMs: 500 });
+  const binding = f.bind('postpone');
+  await binding.dictation.start();
+  f.emit({ type: 'partial', revision: 1, committed: 'ordinary', tentative: '' });
+  document.dispatchEvent(new Event('keydown'));
+  await vi.advanceTimersByTimeAsync(1000);
+  f.frame(0);
+  expect(f.submitted).not.toHaveBeenCalled();
+  await binding.dictation.cancel();
+  await binding.call!.start();
+  f.emit({ type: 'partial', revision: 1, committed: 'call', tentative: '' });
+  await vi.advanceTimersByTimeAsync(400);
+  document.dispatchEvent(new Event('keydown'));
+  await vi.advanceTimersByTimeAsync(480);
+  f.frame(0);
+  expect(f.submitted).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(40);
+  f.frame(0);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(f.submitted).toHaveBeenCalledOnce();
 });
 
 it('restores Voice on call end and ends calls before cancelling route input', async () => {

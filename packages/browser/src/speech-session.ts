@@ -5,7 +5,7 @@ import { createSpeechPlayer } from './player/player.js';
 import { createDictationController } from './dictation/controller.js';
 import { createCallSession, type CallSession } from './call-session.js';
 import type { createAudioCapture } from './capture/capture.js';
-import type { ComposerAdapter, DictationController, DictationTransport, SpeechPlayer, SynthesisFetcher } from './index.js';
+import type { ComposerAdapter, DictationController, DictationControllerOptions, DictationTransport, SpeechPlayer, SynthesisFetcher } from './index.js';
 
 export interface SpeechSessionConfig {
   stt: { enabled: boolean; sampleRates: readonly number[]; defaults: { language?: string } };
@@ -20,6 +20,8 @@ export interface ComposerSpeechOptions {
   config(): SpeechSessionConfig;
   preferences(): DictationPreference & { language?: string };
   activityTarget?: EventTarget;
+  /** Opt in only while the bound call is active; ordinary dictation still cancels on activity. */
+  callActivityPolicy?: DictationControllerOptions['activityPolicy'];
 }
 export interface SpeechSession {
   readonly player: SpeechPlayer;
@@ -114,6 +116,7 @@ export function createSpeechSession(options: {
         language: bindingOptions.preferences().language ?? config.stt.defaults.language,
         get stopAfterSend() { return !inCall() && bindingOptions.preferences().stopAfterSend; },
         get autoSend() { return autoSendFor(bindingOptions.preferences(), { onCall: inCall() }); },
+        get activityPolicy() { return inCall() ? bindingOptions.callActivityPolicy : undefined; },
       });
       if (config.tts.enabled) call = createCallSession({
         dictation, player, metadata: { title: 'Voice call' },

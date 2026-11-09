@@ -11,10 +11,11 @@ export function useComposerSpeech(options: {
   config: SpeechSessionConfig;
   preferences: ReturnType<ComposerSpeechOptions['preferences']>;
   activityTarget?: EventTarget;
+  callActivityPolicy?: ComposerSpeechOptions['callActivityPolicy'];
 }): { controller: ComposerSpeech['dictation'] | null; call: ComposerSpeech['call'] } {
   const { session, composer, owner, enabled = true, config, preferences, activityTarget } = options;
-  const latest = useRef({ config, preferences });
-  latest.current = { config, preferences };
+  const latest = useRef({ config, preferences, callActivityPolicy: options.callActivityPolicy });
+  latest.current = { config, preferences, callActivityPolicy: options.callActivityPolicy };
   const rate = supportedDictationRate(config);
   const language = preferences.language ?? config.stt.defaults.language;
   const [binding, setBinding] = useState<ComposerSpeech | null>(null);
@@ -27,6 +28,7 @@ export function useComposerSpeech(options: {
       config: () => latest.current.config,
       preferences: () => latest.current.preferences,
       activityTarget,
+      get callActivityPolicy() { return latest.current.callActivityPolicy; },
     });
     setBinding(next);
     return () => next.dispose();

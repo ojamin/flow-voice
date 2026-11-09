@@ -440,9 +440,109 @@ describe('dictation transaction', () => {
 });
 
 describe('auto send', () => {
-  it('waits for a full acoustic pause despite stale text and a short breath', async () => {
+  it('postpones edited activity until a fresh full pause and sends the combined draft once', async () => {
     vi.useFakeTimers();
-    const f = fixture({ enabled: true, silenceMs: 1000 });
+    const f = fixture({ enabled: true, silenceMs: 500 }, { activityPolicy: 'postpone' });
+    await f.controller.start();
+    f.emit(partial(1, 'hello', ''));
+    await vi.advanceTimersByTimeAsync(400);
+    f.element.value = 'before HELLOafter';
+    f.element.dispatchEvent(new Event('input'));
+    await vi.advanceTimersByTimeAsync(480);
+    expect(f.submit).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(40);
+    expect(f.submitted).toEqual(['before HELLO worldafter']);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(f.submit).toHaveBeenCalledTimes(1);
+  });
+  it('requires fresh capture and a full pause after activity during automatic finalization', async () => {
+    vi.useFakeTimers();
+    const f = fixture({ enabled: true, silenceMs: 500 }, { activityPolicy: 'postpone' });
+    f.deferEnd();
+    await f.controller.start();
+    f.emit(partial(1, 'hello', ''));
+    await vi.advanceTimersByTimeAsync(600);
+    f.element.value = 'before HELLOafter';
+    f.element.dispatchEvent(new Event('input'));
+    f.emit({ type: 'final', revision: 2, text: 'hello' });
+    f.emit({ type: 'ended', reason: 'stopped' });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(f.submit).not.toHaveBeenCalled();
+    expect(f.capture).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(200);
+    f.element.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }));
+    await vi.advanceTimersByTimeAsync(480);
+    expect(f.submit).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(40);
+    expect(f.submit).not.toHaveBeenCalled();
+    f.emit({ type: 'final', revision: 1, text: '' });
+    f.emit({ type: 'ended', reason: 'stopped' });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(f.submitted).toEqual(['before HELLOafter']);
+    expect(f.capture).toHaveBeenCalledTimes(2);
+  });
+  it.each([true, false])('manual Send takes over a postponed finalization (stopAfterSend: %s)', async (stopAfterSend) => {
+    vi.useFakeTimers();
+    const f = fixture({ enabled: true, silenceMs: 500 }, { activityPolicy: 'postpone', stopAfterSend });
+    f.deferEnd();
+    await f.controller.start();
+    f.emit(partial(1, 'hello', ''));
+    await vi.advanceTimersByTimeAsync(600);
+    f.controller.notifyUserActivity();
+    const sending = f.composer.submit();
+    f.emit({ type: 'final', revision: 2, text: 'hello' });
+    f.emit({ type: 'ended', reason: 'stopped' });
+    await sending;
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(f.submitted).toEqual(['before helloafter']);
+    expect(f.capture).toHaveBeenCalledTimes(stopAfterSend ? 1 : 2);
+  });
+  it.each(['mute', 'end'] as const)('%s prevents recapture after postponed finalization', async (action) => {
+    vi.useFakeTimers();
+    const f = fixture({ enabled: true, silenceMs: 500 }, { activityPolicy: 'postpone' });
+    f.deferEnd();
+    const player = createSpeechPlayer({ synthesize: vi.fn() });
+    vi.spyOn(player, 'unlock').mockResolvedValue();
+    vi.spyOn(player, 'setBackgroundAudio').mockResolvedValue();
+    const call = createCallSession({ dictation: f.controller, player, mediaSession: null });
+    await call.start();
+    f.emit(partial(1, 'hello', ''));
+    await vi.advanceTimersByTimeAsync(600);
+    f.controller.notifyUserActivity();
+    if (action === 'mute') call.setMuted(true);
+    else call.end();
+    f.emit({ type: 'final', revision: 2, text: 'hello' });
+    f.emit({ type: 'ended', reason: 'stopped' });
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(f.submit).not.toHaveBeenCalled();
+    expect(f.capture).toHaveBeenCalledTimes(1);
+    call.dispose();
+    player.dispose();
+  });
+  it.each(['explicit', 'invalidate', 'cancel', 'finish'] as const)(
+    'postpone activity cannot undo %s during pending finalization', async (protection) => {
+      vi.useFakeTimers();
+      const f = fixture({ enabled: true, silenceMs: 500 }, { activityPolicy: 'postpone' });
+      f.deferEnd();
+      await f.controller.start();
+      f.emit(partial(1, 'hello', ''));
+      await vi.advanceTimersByTimeAsync(600);
+      f.controller.notifyUserActivity();
+      if (protection === 'explicit') f.controller.cancelAutoSend();
+      else if (protection === 'invalidate') f.composer.invalidate();
+      else if (protection === 'cancel') await f.controller.cancel();
+      else void f.controller.finish();
+      f.controller.notifyUserActivity();
+      f.emit({ type: 'final', revision: 2, text: 'hello' });
+      f.emit({ type: 'ended', reason: 'stopped' });
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(f.submit).not.toHaveBeenCalled();
+      expect(f.capture).toHaveBeenCalledTimes(1);
+    },
+  );
+  it.each([undefined, 'postpone'] as const)('waits for a full acoustic pause despite stale text and a short breath (%s)', async (activityPolicy) => {
+    vi.useFakeTimers();
+    const f = fixture({ enabled: true, silenceMs: 1000 }, { activityPolicy });
     f.setRms(0.2);
     await f.controller.start();
     f.emit(partial(1, 'hello', ''));

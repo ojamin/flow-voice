@@ -96,6 +96,11 @@ export interface DictationControllerOptions {
   capture?(options: AudioCaptureOptions): AudioCapture;
   /** `afterPause: false` sends only on `keyword`, with no silence countdown. */
   autoSend?: { enabled: boolean; silenceMs: number; keyword?: string; afterPause?: boolean };
+  /** Native/host activity defaults to cancelling auto-send for the turn.
+   * `postpone` instead requires a fresh full acoustic pause; activity during automatic
+   * finalization retires that attempt and reacquires capture for the retained draft.
+   * Explicit cancelAutoSend(), finish(), cancel() and invalidation still cancel. */
+  activityPolicy?: 'cancel' | 'postpone';
   /** Defaults to true (stop after Send). False starts a fresh session after successful submission. */
   stopAfterSend?: boolean;
   language?: string;

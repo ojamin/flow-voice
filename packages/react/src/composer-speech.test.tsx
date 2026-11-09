@@ -63,10 +63,12 @@ it('reads latest preferences without rebuilding for object identity or send-poli
   const controller = f.value().controller;
   f.options.config = { ...f.options.config, stt: { ...f.options.config.stt, sampleRates: [123, 24000, 48000] } };
   f.options.preferences = { ...f.options.preferences, keyword: 'send', sendOnWord: true };
+  f.options.callActivityPolicy = 'postpone';
   f.render();
   expect(f.bind).toHaveBeenCalledOnce();
   expect(f.value().controller).toBe(controller);
   expect(f.bind.mock.calls[0]![1].preferences()).toMatchObject({ keyword: 'send', sendOnWord: true });
+  expect(f.bind.mock.calls[0]![1].callActivityPolicy).toBe('postpone');
 });
 
 it('rebinds on real language, rate, owner, availability and TTS changes', () => {
