@@ -543,12 +543,12 @@ native default is an inline disclosure with Escape returning focus to the trigge
 Mount `<CallScreenLock call={call} />` once beside the call controls, outside any host modal.
 It renders an entry button only while active and a black viewport cover when locked. The
 call keeps running. Native `dialog.showModal()` supplies top-layer rendering, focus
-containment, and inert background; Escape/backdrop do not unlock. Touch/pointer unlock
+containment, and inert background; Escape/backdrop do not unlock. The optional slide gesture
 requires starting on the primary thumb, dragging at least 90% of its track and releasing
 at the far endpoint. Track taps, short slides, cancellation and extra fingers stay locked.
-Keyboard and assistive-technology users deliberately activate the focused “Unlock call
-screen” button. Ending/replacing the call or unmounting tears down the cover and gesture;
-a new call starts unlocked. No fullscreen API, settings, CSS import, or host UI dependency
+A separate visible “Unlock call screen” native button accepts ordinary clicks, taps,
+keyboard and assistive-technology activation, even when the swipe gesture is unavailable.
+Ending/replacing the call or unmounting tears down the cover and gesture; a new call starts unlocked. No fullscreen API, settings, CSS import, or host UI dependency
 is needed. This is a pocket cover, not an OS/security lock. Requires native modal dialog
 support in the host browser (current evergreen browsers).
 

@@ -36,7 +36,7 @@ function fixture() {
   };
   const view = render(<><button>Background send</button><CallScreenLock call={call} /></>);
   const lock = () => fireEvent.click(screen.getByRole('button', { name: 'Lock call screen' }));
-  const thumb = () => screen.getByRole('button', { name: 'Unlock call screen' });
+  const thumb = () => screen.getByRole('button', { name: 'Slide to unlock call screen' });
   const gesture = () => {
     lock();
     const button = thumb();
@@ -56,6 +56,9 @@ it('uses a viewport modal, keeps the call running, blocks dismissal, and resets 
   expect(HTMLDialogElement.prototype.showModal).toHaveBeenCalledTimes(1);
   expect((dialog as HTMLDialogElement).open).toBe(true);
   expect(dialog.style.background).toBe('rgb(0, 0, 0)');
+  // This is the declared browser gesture policy, not proof of device touch delivery.
+  expect(dialog.style.touchAction).toBe('none');
+  expect(f.thumb().style.touchAction).toBe('none');
   expect(fireEvent(dialog, new Event('cancel', { cancelable: true }))).toBe(false);
   expect(f.call.end).not.toHaveBeenCalled();
   expect(f.call.setMuted).not.toHaveBeenCalled();
@@ -93,15 +96,50 @@ it.each(['tap', 'short', 'cancel', 'lost capture', 'second finger', 'endpoint on
   }
   expect(screen.getByRole('dialog')).toBeTruthy();
 });
-it('offers an explicit keyboard/AT unlock and closes the modal on unmount', async () => {
+it('keeps a captured swipe alive across a host render without reopening the dialog', () => {
+  const f = fixture();
+  const thumb = f.gesture();
+  f.pointer(thumb, 'pointerdown', 10);
+  f.pointer(thumb, 'pointermove', 150);
+  // Hosts rerender during live calls; the same modal and gesture must survive.
+  f.view.rerender(<><button>Background send updated</button><CallScreenLock call={f.call} /></>);
+  f.pointer(thumb, 'pointermove', 275);
+  f.pointer(thumb, 'pointerup', 275);
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(HTMLDialogElement.prototype.showModal).toHaveBeenCalledTimes(1);
+  expect(f.call.end).not.toHaveBeenCalled();
+});
+it.each(['cancelled', 'blocked'] as const)('provides an ordinary visible click exit when swipe events are %s', (kind) => {
+  const f = fixture();
+  const thumb = f.gesture();
+  // Exercise a cancelled stream and a completely unavailable gesture independently.
+  if (kind === 'blocked') {
+    for (const type of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel']) {
+      thumb.addEventListener(type, (event) => event.stopImmediatePropagation());
+    }
+  }
+  f.pointer(thumb, 'pointerdown', 10);
+  f.pointer(thumb, 'pointermove', 275);
+  f.pointer(thumb, 'pointercancel', 275);
+  expect(screen.getByRole('dialog')).toBeTruthy();
+  const exit = screen.getByRole('button', { name: 'Unlock call screen' });
+  expect(exit.textContent).toBe('Unlock call screen');
+  expect((exit as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.click(exit, { detail: 1 });
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(f.call.getSnapshot().status).toBe('active');
+  expect(f.call.end).not.toHaveBeenCalled();
+  expect(f.call.setMuted).not.toHaveBeenCalled();
+});
+it.each(['{Enter}', ' '])('offers keyboard/AT unlock via %s and closes the modal on unmount', async (key) => {
   const user = userEvent.setup();
   const f = fixture();
   f.lock();
-  f.thumb().focus();
-  await user.keyboard('{Enter}');
+  screen.getByRole('button', { name: 'Unlock call screen' }).focus();
+  await user.keyboard(key);
   expect(screen.queryByRole('dialog')).toBeNull();
   f.lock();
-  fireEvent.click(f.thumb(), { detail: 0 });
+  fireEvent.click(screen.getByRole('button', { name: 'Unlock call screen' }), { detail: 0 });
   expect(screen.queryByRole('dialog')).toBeNull();
   f.lock();
   f.view.unmount();

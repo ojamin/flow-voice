@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CallSession } from '@flow-voice/browser';
 import { useCallSession } from './voice.js';
 
@@ -16,17 +16,23 @@ export function CallScreenLock({ call, className }: CallScreenLockProps) {
   const drag = useRef<{
     id: number; start: number; distance: number; travel: number; thumb: HTMLButtonElement;
   } | null>(null);
-  const resetDrag = () => {
+  const resetDrag = useCallback(() => {
     const previous = drag.current;
     drag.current = null;
     if (!previous) return;
     previous.thumb.style.transform = '';
     if (previous.thumb.hasPointerCapture?.(previous.id)) previous.thumb.releasePointerCapture(previous.id);
-  };
+  }, []);
+  // A changing ref closes the native modal and releases capture on every host render.
+  const mountDialog = useCallback((dialog: HTMLDialogElement | null) => {
+    if (!dialog) return;
+    dialog.showModal();
+    return () => { resetDrag(); dialog.close(); };
+  }, [resetDrag]);
   useEffect(() => {
     setLocked(false);
     resetDrag();
-  }, [call, state.status]);
+  }, [call, state.status, resetDrag]);
   if (state.status !== 'active') return null;
   return <>
     <button type="button" className={className} data-flow-voice-action="lock-call-screen"
@@ -35,13 +41,9 @@ export function CallScreenLock({ call, className }: CallScreenLockProps) {
       aria-label="Call screen locked"
       aria-modal="true"
       data-flow-voice-call-lock=""
-      ref={(dialog) => {
-        if (!dialog) return;
-        dialog.showModal();
-        return () => { resetDrag(); dialog.close(); };
-      }}
+      ref={mountDialog}
       onCancel={(event) => event.preventDefault()}
-      onClick={(event) => { event.preventDefault(); event.stopPropagation(); }}
+      onClick={(event) => event.stopPropagation()}
       onPointerDownCapture={(event) => {
         if (!event.isPrimary) resetDrag();
       }}
@@ -52,9 +54,9 @@ export function CallScreenLock({ call, className }: CallScreenLockProps) {
       }}
     >
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 24 }}>
-        <p>Call continues. Slide to unlock.</p>
+        <p>Call continues. Slide or tap the button to unlock.</p>
         <div style={{ width: 'min(320px, 80vw)', height: 56, borderRadius: 28, background: '#333' }}>
-          <button type="button" aria-label="Unlock call screen" autoFocus
+          <button type="button" aria-label="Slide to unlock call screen"
             style={{ width: 56, height: 56, borderRadius: '50%', touchAction: 'none' }}
             onPointerDown={(event) => {
               if (!event.isPrimary || event.button !== 0 || drag.current) return;
@@ -90,7 +92,10 @@ export function CallScreenLock({ call, className }: CallScreenLockProps) {
             }}
           >→</button>
         </div>
-        <p>Keyboard or assistive technology: activate “Unlock call screen”.</p>
+        <button type="button" autoFocus
+          style={{ minHeight: 44, padding: '0.5rem 1rem', font: 'inherit', cursor: 'pointer' }}
+          onClick={() => setLocked(false)}
+        >Unlock call screen</button>
       </div>
     </dialog>}
   </>;
