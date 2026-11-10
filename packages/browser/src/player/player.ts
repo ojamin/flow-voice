@@ -94,6 +94,7 @@ export function createSpeechPlayer(options: SpeechPlayerOptions): SpeechPlayer {
           status: 'loading',
           messageId: message.id,
           sectionOrdinal: section.ordinal,
+          sectionText: section.text,
           error: null,
         });
         const fetched = prefetched?.key === key(message) ? prefetched : fetchSection(message);
@@ -140,7 +141,7 @@ export function createSpeechPlayer(options: SpeechPlayerOptions): SpeechPlayer {
         }
       }
       if (!queue.length && generation === epoch)
-        emit({ status: 'idle', messageId: null, sectionOrdinal: null });
+        emit({ status: 'idle', messageId: null, sectionOrdinal: null, sectionText: null });
     } finally {
       running = false;
       if (generation !== epoch) void pump();
@@ -256,7 +257,7 @@ export function createSpeechPlayer(options: SpeechPlayerOptions): SpeechPlayer {
       queue = [];
       paused = false;
       output.reset();
-      emit({ status: 'idle', messageId: null, sectionOrdinal: null, error: null });
+      emit({ status: 'idle', messageId: null, sectionOrdinal: null, sectionText: null, error: null });
     },
     dispose() {
       if (disposed) return;

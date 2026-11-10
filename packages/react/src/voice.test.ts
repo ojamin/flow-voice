@@ -11,6 +11,7 @@ vi.mock('react', async (original) => ({
 
 it('subscribes to host-owned call and Voice stores without owning their lifecycle', () => {
   const call: CallSession = {
+    filterRecognition: (_input, text) => text,
     getSnapshot: () => ({ status: 'active', muted: true, failed: false }), subscribe: vi.fn(() => vi.fn()),
     start: vi.fn(async () => {}), end: vi.fn(), failSubmission: vi.fn(), setMuted: vi.fn(), setDictation: vi.fn(), dispose: vi.fn(),
   };

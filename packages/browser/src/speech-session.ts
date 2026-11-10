@@ -117,6 +117,7 @@ export function createSpeechSession(options: {
         get stopAfterSend() { return !inCall() && bindingOptions.preferences().stopAfterSend; },
         get autoSend() { return autoSendFor(bindingOptions.preferences(), { onCall: inCall() }); },
         get activityPolicy() { return inCall() ? bindingOptions.callActivityPolicy : undefined; },
+        filterRecognition: (text) => call?.filterRecognition(dictation, text) ?? text,
       });
       if (config.tts.enabled) call = createCallSession({
         dictation, player, metadata: { title: 'Voice call' },

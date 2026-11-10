@@ -1,5 +1,5 @@
 import type { SpeechError } from '@flow-voice/core';
-import type { DictationController, ExternalStore, SpeechPlayer } from './index.js';
+import type { DictationController, ExternalStore, RecognitionHypothesis, SpeechPlayer } from './index.js';
 
 export interface CallSubmissionFailure {
   /** Final unsent transcript, retained independently of composer/controller teardown. */
@@ -33,6 +33,8 @@ export interface CallSessionOptions {
   maxFailures?: number;
 }
 export interface CallSession extends ExternalStore<CallSessionSnapshot> {
+  /** Wire at recognition ingress, binding the controller that produced the hypothesis. */
+  filterRecognition(input: DictationController, hypothesis: RecognitionHypothesis): RecognitionHypothesis;
   /** Invoke inside the user gesture, not from an effect. */
   start(): Promise<void>;
   setMuted(muted: boolean): void;
@@ -61,6 +63,17 @@ export function createCallSession(options: CallSessionOptions): CallSession {
   /** Dictation was on when the call started, so hanging up leaves it on. */
   let restoreDictation = false;
   let setMetadata = false;
+  type Played = { messageId: string | null; ordinal: number | null; text: string };
+  let latest: Played | undefined;
+  let previous: Played | undefined;
+  const normalize = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  const rememberPlayback = () => {
+    const state = player.getSnapshot();
+    if (snapshot.status !== 'active' || state.status !== 'playing' || !state.sectionText) return;
+    if (latest?.messageId === state.messageId && latest?.ordinal === state.sectionOrdinal) return;
+    previous = latest;
+    latest = { messageId: state.messageId, ordinal: state.sectionOrdinal, text: normalize(state.sectionText) };
+  };
   const listeners = new Set<() => void>();
   const publish = (patch: Partial<CallSessionSnapshot>) => {
     snapshot = { ...snapshot, ...patch };
@@ -71,6 +84,7 @@ export function createCallSession(options: CallSessionOptions): CallSession {
     catch { /* Optional browser capability. */ }
   };
   const playback = () => {
+    rememberPlayback();
     if (media && snapshot.status === 'active')
       media.playbackState = player.getSnapshot().status === 'playing' ? 'playing' : 'paused';
   };
@@ -150,6 +164,7 @@ export function createCallSession(options: CallSessionOptions): CallSession {
   function finish(failed: boolean, submissionFailure = snapshot.submissionFailure) {
     if (snapshot.status === 'idle') return;
     generation++;
+    latest = previous = undefined;
     releaseWakeLock();
     globalThis.document?.removeEventListener('visibilitychange', visibility);
     publish({ status: 'idle', muted: false, failed, submissionFailure });
@@ -169,6 +184,20 @@ export function createCallSession(options: CallSessionOptions): CallSession {
     restore?.();
   }
   const session: CallSession = {
+    filterRecognition(input, hypothesis) {
+      if (!shouldListen() || input !== dictation) return hypothesis;
+      const text = normalize([hypothesis.committed, hypothesis.tentative].filter(Boolean).join(' '));
+      if (!text) return hypothesis;
+      // Whole-hypothesis token runs only, not incidental overlap or fuzzy speaker detection.
+      // Join adjacent sections of the same reply; never invent a span between unrelated messages.
+      const reference = previous && latest && previous.messageId === latest.messageId &&
+        previous.ordinal !== null && latest.ordinal === previous.ordinal + 1
+        ? `${previous.text} ${latest.text}` : undefined;
+      if ([latest?.text, previous?.text, reference].some((spoken) => spoken && ` ${spoken} `.includes(` ${text} `)))
+        return { committed: '', tentative: '' };
+      if (['playing', 'loading'].includes(player.getSnapshot().status)) player.stop();
+      return hypothesis;
+    },
     getSnapshot: () => snapshot,
     subscribe(listener) {
       listeners.add(listener);
@@ -181,6 +210,7 @@ export function createCallSession(options: CallSessionOptions): CallSession {
       const status = dictation?.getSnapshot().status;
       restoreDictation = status === 'connecting' || status === 'listening';
       publish({ status: 'active', muted: false, failed: false, submissionFailure: undefined });
+      rememberPlayback();
       globalThis.document?.addEventListener('visibilitychange', visibility);
       visibility();
       // All three calls happen in the gesture, before the first await.
@@ -208,6 +238,7 @@ export function createCallSession(options: CallSessionOptions): CallSession {
     setDictation(next) {
       if (next === dictation) return;
       unsubscribeDictation?.();
+      latest = previous = undefined;
       dictation = next;
       unsubscribeDictation = next?.subscribe(onDictation);
       if (shouldListen()) void listen();

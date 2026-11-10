@@ -386,6 +386,7 @@ it('owns call start rejection cleanup, retry, mute, end and failed state', async
   const state = store<CallSessionSnapshot>({ status: 'idle', muted: false, failed: false });
   const attempt = deferred<void>();
   const call: CallSession = {
+    filterRecognition: (_input, text) => text,
     ...state,
     start: vi.fn(() => attempt.promise),
     failSubmission: vi.fn(),
@@ -548,6 +549,7 @@ it('ignores a late start failure after the user has ended the call', async () =>
   const state = store<CallSessionSnapshot>({ status: 'idle', muted: false, failed: false });
   const attempt = deferred<void>();
   const call: CallSession = {
+    filterRecognition: (_input, text) => text,
     ...state,
     start: vi.fn(() => {
       state.publish({ status: 'active', muted: false, failed: false });
@@ -656,6 +658,7 @@ it('keeps active-call cleanup available when new-call admission is disabled', as
   const user = userEvent.setup();
   const state = store<CallSessionSnapshot>({ status: 'active', muted: false, failed: false });
   const call: CallSession = {
+    filterRecognition: (_input, text) => text,
     ...state,
     start: vi.fn(),
     failSubmission: vi.fn(),

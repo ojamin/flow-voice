@@ -23,14 +23,15 @@ function fixture(outcomes: boolean[] = []) {
     dispose: vi.fn(async () => {}), cancelAutoSend: vi.fn(), notifyUserActivity: vi.fn(),
   };
   let playerStatus: SpeechPlayerSnapshot['status'] = 'idle';
+  let section: Partial<SpeechPlayerSnapshot> = {};
   let playerListener = () => {};
   const player: SpeechPlayer = {
-    getSnapshot: () => ({ status: playerStatus, messageId: null, sectionOrdinal: null, queuedMessages: 0, error: null }),
+    getSnapshot: () => ({ status: playerStatus, messageId: null, sectionOrdinal: null, queuedMessages: 0, error: null, ...section }),
     subscribe(fn) { playerListener = fn; return vi.fn(); },
     unlock: vi.fn(async () => {}), setBackgroundAudio: vi.fn(async () => {}),
     resume: vi.fn(async () => { playerStatus = 'playing'; playerListener(); }),
     pause: vi.fn(() => { playerStatus = 'paused'; playerListener(); }),
-    skipSection: vi.fn(), skipToEnd: vi.fn(), stop: vi.fn(), dispose: vi.fn(), enqueue: vi.fn(), append: vi.fn(),
+    skipSection: vi.fn(), skipToEnd: vi.fn(), stop: vi.fn(() => { playerStatus = 'idle'; playerListener(); }), dispose: vi.fn(), enqueue: vi.fn(), append: vi.fn(),
   };
   const handlers = new Map<MediaSessionAction | CallMediaAction, (() => void) | null>();
   const media: CallMediaSession = {
@@ -41,8 +42,54 @@ function fixture(outcomes: boolean[] = []) {
   const restore = vi.fn();
   const onVoiceChange = vi.fn(() => restore);
   const session = createCallSession({ dictation, player, mediaSession: media, onVoiceChange });
-  return { session, dictation, player, emit, media, handlers, restore, onVoiceChange };
+  return { session, dictation, player, emit, media, handlers, restore, onVoiceChange,
+    play(text: string, ordinal = 0, messageId = 'reply', status: SpeechPlayerSnapshot['status'] = 'playing') {
+      section = { sectionText: text, sectionOrdinal: ordinal, messageId };
+      playerStatus = status;
+      playerListener();
+    },
+  };
 }
+
+it('retains adjacent played references through notifications/restarts, but never joins skipped or unrelated sections', async () => {
+  const f = fixture();
+  await f.session.start();
+  const filter = (text: string) => f.session.filterRecognition(f.dictation, { committed: '', tentative: text });
+  f.play('We can review the deployment plan before lunch');
+  f.play('and then discuss the release schedule tomorrow', 1, 'reply', 'loading');
+  expect(filter('deployment plan before lunch').tentative).toBe('');
+  // Loading text is not an echo reference; it is eligible speech and cancels loading.
+  expect(filter('and then discuss').tentative).toBe('and then discuss');
+  expect(f.player.stop).toHaveBeenCalledTimes(1);
+  f.play('and then discuss the release schedule tomorrow', 1);
+  await f.player.resume(); // Duplicate playing notification must not rotate the bounded pair.
+  f.emit('idle');
+  await vi.waitFor(() => expect(f.dictation.start).toHaveBeenCalledTimes(2));
+  expect(filter('before lunch and then discuss').tentative).toBe('');
+  f.play('later we will finish', 3);
+  expect(filter('tomorrow later we').tentative).toBe('tomorrow later we');
+  f.play('a different reply', 4, 'other-reply');
+  expect(filter('will finish a different').tentative).toBe('will finish a different');
+  f.session.dispose();
+});
+
+it('seeds already-playing text at call start, clears on rebind/end, and ignores detached controllers', async () => {
+  const f = fixture();
+  f.play('already speaking');
+  await f.session.start();
+  const text = { committed: 'already speaking', tentative: '' };
+  expect(f.session.filterRecognition(f.dictation, text)).toEqual({ committed: '', tentative: '' });
+  const replacement = { ...f.dictation };
+  f.session.setDictation(replacement);
+  expect(f.session.filterRecognition(f.dictation, { committed: 'stale interruption', tentative: '' }).committed).toBe('stale interruption');
+  expect(f.player.stop).not.toHaveBeenCalled();
+  expect(f.session.filterRecognition(replacement, text)).toBe(text);
+  expect(f.player.stop).toHaveBeenCalledTimes(1);
+  f.session.end();
+  await f.session.start();
+  expect(f.session.filterRecognition(replacement, text)).toBe(text);
+  f.session.dispose();
+});
 
 it('starts gesture-sensitive APIs synchronously, restarts stops/errors, mutes and restores Voice', async () => {
   const f = fixture();

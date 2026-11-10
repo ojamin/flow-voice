@@ -210,28 +210,35 @@ export function createDictationController(
           });
         } else s.resolveReady();
         break;
-      case 'partial':
+      case 'partial': {
         if (message.revision <= s.revision) return;
         s.revision = message.revision;
-        apply(s, message.committed, message.tentative);
+        const text = options.filterRecognition?.(message) ?? message;
+        if (!current(s)) return; // The policy can synchronously stop playback and tear down input.
+        apply(s, text.committed, text.tentative);
         if (
           options.autoSend?.enabled &&
           options.autoSend.keyword &&
-          matchSendKeyword(message.committed, options.autoSend.keyword).matched
+          matchSendKeyword(text.committed, options.autoSend.keyword).matched
         )
           void autoSubmit(s, true);
         break;
-      case 'final':
+      }
+      case 'final': {
         if (message.revision < s.revision) return;
         s.revision = message.revision;
-        apply(s, message.text, '');
+        const hypothesis = { committed: message.text, tentative: '' };
+        const text = options.filterRecognition?.(hypothesis) ?? hypothesis;
+        if (!current(s)) return;
+        apply(s, text.committed, text.tentative);
         if (
           options.autoSend?.enabled &&
           options.autoSend.keyword &&
-          matchSendKeyword(message.text, options.autoSend.keyword).matched
+          matchSendKeyword(text.committed, options.autoSend.keyword).matched
         )
           void autoSubmit(s, true);
         break;
+      }
       case 'error':
         fail(s, message);
         break;

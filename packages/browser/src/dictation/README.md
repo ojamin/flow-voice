@@ -54,6 +54,23 @@ on owner teardown. `cancel()` removes tentative words only; failure keeps the
 visible partial. `finish()` flushes audio, waits for the complete final/ended and
 rejects on finalization failure so normal Send cannot read an incomplete draft.
 Default session duration is unlimited; connection/finalization limits are 10s/10s.
+
+Call bindings filter each complete recognized hypothesis before composer updates or
+keyword admission. Accepted nonempty speech stops a playing/loading reply with
+`player.stop()` (queued output is discarded, never resumed); existing dictation
+pause/finalization admission sends the preserved utterance. RMS alone does not interrupt.
+Independent call inputs must wire `filterRecognition: text => call.filterRecognition(input, text)`.
+Ordinary dictation has no filter by default.
+
+The call rejects normalized whole-token contiguous runs of the latest or immediately
+previous actually played section, including their boundary only for consecutive ordinals
+of the same reply. There is no minimum run length: the entire hypothesis must match;
+incidental shared words in a distinct phrase do not suffice. References survive stop,
+completion and dictation restart, and clear on call end/dispose/input rebind. Loading
+text is not recorded as emitted. This deterministic text guard can suppress deliberate
+verbatim repetition (including short phrases); it is not acoustic speaker detection
+and does not cover arbitrary ASR substitutions, noncontiguous words or older echo.
+
 `stopAfterSend` defaults to true. Set it to false to listen into a new empty draft
 after successful Send; release the submission binding only after clearing that draft.
 Invalidation still stops capture, and submission failure retains the finalized text.

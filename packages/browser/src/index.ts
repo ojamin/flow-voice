@@ -94,6 +94,8 @@ export interface DictationController extends ExternalStore<DictationSnapshot> {
   dispose(): Promise<void>;
 }
 export interface DictationControllerOptions {
+  /** Synchronous complete-hypothesis policy, after revision admission and before apply/send. */
+  filterRecognition?(hypothesis: RecognitionHypothesis): RecognitionHypothesis;
   transport: DictationTransport;
   composer: ComposerAdapter;
   audio: PcmInput;
@@ -118,6 +120,10 @@ export interface DictationControllerOptions {
   connectionTimeoutMs?: number;
 }
 export { createDictationController } from './dictation/controller.js';
+export interface RecognitionHypothesis {
+  committed: string;
+  tentative: string;
+}
 export { createTextareaComposerAdapter } from './dictation/textarea.js';
 export { createEditorComposerAdapter } from './dictation/editor.js';
 export type { DraftChange, EditorEdit, TentativeText, EditorComposerAdapter, EditorDraft, EditorPort } from './dictation/editor.js';
@@ -137,6 +143,8 @@ export interface SpeechPlayerSnapshot {
   status: 'idle' | 'loading' | 'playing' | 'paused' | 'blocked' | 'error';
   messageId: string | null;
   sectionOrdinal: number | null;
+  /** Actual synthesis input for this section; only `playing` establishes emitted text. */
+  sectionText?: string | null;
   queuedMessages: number;
   error: SpeechError | null;
 }

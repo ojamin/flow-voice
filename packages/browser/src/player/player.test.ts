@@ -257,6 +257,39 @@ describe('speech player', () => {
     await tick();
     expect(sources).toHaveLength(1);
   });
+  it('fences queued/prefetched sections and a captured old onended after stop and replacement', async () => {
+    let resolve!: (audio: SynthesisAudio) => void;
+    const fetcher = vi.fn<SynthesisFetcher>()
+      .mockResolvedValueOnce(pcm())
+      .mockImplementationOnce(() => new Promise((done) => { resolve = done; }))
+      .mockImplementation(async () => pcm());
+    const p = player(fetcher);
+    p.append({ ...message('old', 'one', 'two'), complete: false });
+    await tick();
+    const lateEnded = sources[0]!.onended!;
+    expect(p.getSnapshot()).toMatchObject({ status: 'playing', sectionText: 'one' });
+    p.stop();
+    p.append({ id: 'old', sections: [{ ordinal: 2, text: 'late' }], complete: true });
+    p.append(message('new', 'replacement'));
+    await tick();
+    resolve(pcm());
+    lateEnded();
+    await tick();
+    expect(p.getSnapshot()).toMatchObject({ messageId: 'new', status: 'playing', sectionText: 'replacement' });
+    expect(sources).toHaveLength(2);
+    expect(sources[0]!.stopped).toBe(true);
+    sources[1]!.end();
+    await tick();
+    expect(p.getSnapshot()).toMatchObject({ status: 'idle', sectionText: null });
+  });
+  it('stop during the playing notification prevents output from starting', async () => {
+    const p = player();
+    p.subscribe(() => { if (p.getSnapshot().status === 'playing') p.stop(); });
+    p.append(message('old', 'one'));
+    await tick();
+    expect(p.getSnapshot().status).toBe('idle');
+    expect(sources).toHaveLength(0);
+  });
   it('cancels late stream chunks and disposes idempotently', async () => {
     let stream!: ReadableStreamDefaultController<Uint8Array>;
     const audio = pcm();

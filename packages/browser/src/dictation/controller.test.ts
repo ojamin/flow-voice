@@ -151,6 +151,39 @@ const partial = (revision: number, committed: string, tentative: string): SttSer
 });
 
 describe('continuous dictation', () => {
+  it('admits revisions before filtering and checks effective text on partial and equal-revision final', async () => {
+    const filterRecognition = vi.fn((text: { committed: string; tentative: string }) =>
+      text.committed.includes('echo') || text.tentative.includes('echo')
+        ? { committed: '', tentative: '' } : text);
+    const f = fixture({ enabled: true, silenceMs: 100, keyword: 'send' }, { filterRecognition });
+    await f.controller.start();
+    f.emit(partial(2, '', 'candidate'));
+    f.emit(partial(3, 'echo send', ''));
+    f.emit(partial(2, 'stale send', ''));
+    f.emit(partial(3, 'equal partial send', ''));
+    expect(filterRecognition).toHaveBeenCalledTimes(2);
+    expect(f.controller.getSnapshot()).toMatchObject({ committed: '', tentative: '', status: 'listening' });
+    expect(f.element.value).toBe('before after');
+    f.emit({ type: 'final', revision: 2, text: 'stale send' });
+    f.emit({ type: 'final', revision: 3, text: 'echo send' });
+    expect(filterRecognition).toHaveBeenCalledTimes(3);
+    expect(f.stop).not.toHaveBeenCalled();
+    expect(f.submit).not.toHaveBeenCalled();
+    f.emit({ type: 'final', revision: 3, text: 'valid first final' });
+    expect(f.controller.getSnapshot().committed).toBe('valid first final');
+    expect(f.element.value).toContain('valid first final');
+  });
+
+  it('accepts first recognized final while finalizing and filters it before application', async () => {
+    const filterRecognition = vi.fn((text: { committed: string; tentative: string }) => text);
+    const f = fixture(undefined, { filterRecognition });
+    await f.controller.start();
+    f.setFinal('first recognized text');
+    await f.controller.finish();
+    expect(filterRecognition).toHaveBeenCalledWith({ committed: 'first recognized text', tentative: '' });
+    expect(f.element.value).toContain('first recognized text');
+  });
+
   it.each(['textarea', 'editor'] as const)('cancels manual %s Send without failure when ownership is lost', async (adapter) => {
     const f = fixture(undefined, { stopAfterSend: false }, adapter);
     f.deferEnd();

@@ -29,6 +29,7 @@ function fixture() {
     listeners.forEach((listener) => listener());
   });
   const call: CallSession = {
+    filterRecognition: (_input, text) => text,
     getSnapshot: () => state,
     subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
     start: vi.fn(async () => {}), end: vi.fn(() => update('idle')),
