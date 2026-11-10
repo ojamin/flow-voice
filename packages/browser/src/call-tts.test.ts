@@ -130,9 +130,8 @@ function fixture(finalization?: Promise<void>, finite = false, synthesis?: Promi
   };
 }
 
-it.each([false, true])('accepts unheard section speech after loading pause/resume and fences late synthesis (committed: %s)', async (committed) => {
-  let resolve!: (audio: SynthesisAudio) => void;
-  const synthesis = new Promise<SynthesisAudio>((done) => { resolve = done; });
+it.each([false, true])('accepts unheard section speech during loading without stopping the reply (committed: %s)', async (committed) => {
+  const synthesis = new Promise<SynthesisAudio>(() => {});
   const f = fixture(undefined, false, synthesis);
   await f.binding.call!.start();
   f.reply('We can review the deployment plan before lunch');
@@ -144,14 +143,8 @@ it.each([false, true])('accepts unheard section speech after loading pause/resum
   const text = 'review the deployment plan';
   f.partial(text, committed);
   await vi.waitFor(() => expect(f.element.value).toBe(text));
-  expect(stop).toHaveBeenCalledTimes(1);
-  expect(f.session.player.getSnapshot().status).toBe('idle');
-  const cancel = vi.fn();
-  resolve({ stream: new ReadableStream({ start(c) {
-    c.enqueue(new Uint8Array([0, 0, 0, 0])); c.close();
-  }, cancel }), mimeType: 'audio/pcm',
-    format: { kind: 'pcm', encoding: 'pcm_s16le', sampleRate: 24000, channels: 1 } });
-  await vi.waitFor(() => expect(cancel).toHaveBeenCalledTimes(1));
+  expect(stop).not.toHaveBeenCalled();
+  expect(f.session.player.getSnapshot().status).toBe('loading');
   expect(f.ends).toHaveLength(0);
   f.partial(text, committed);
   await vi.advanceTimersByTimeAsync(10);
@@ -163,7 +156,7 @@ it.each([false, true])('accepts unheard section speech after loading pause/resum
   await vi.advanceTimersByTimeAsync(2000);
   f.frame(0);
   expect(f.sent).toEqual([text]);
-  expect(stop).toHaveBeenCalledTimes(1);
+  expect(stop).not.toHaveBeenCalled();
   expect(f.ends).toHaveLength(0);
 });
 
@@ -176,10 +169,11 @@ it.each([false, true])('auto-sends public producer speech during TTS after a ful
   f.frame(0.2);
   f.partial('my interruption', committed);
   await vi.waitFor(() => expect(f.element.value).toBe('my interruption'));
-  expect(f.session.player.getSnapshot().status).toBe('idle');
-  expect(stop).toHaveBeenCalledTimes(1);
+  expect(f.session.player.getSnapshot().status).toBe('playing');
+  expect(stop).not.toHaveBeenCalled();
   f.session.player.append({ id: 'alice-reply', sections: [{ ordinal: 1, text: 'late continuation' }] });
-  expect(f.session.player.getSnapshot().queuedMessages).toBe(0);
+  // No stop-on-speech: the late continuation is kept queued behind the playing reply.
+  expect(f.session.player.getSnapshot().queuedMessages).toBe(1);
   expect(f.wire).toContainEqual(expect.objectContaining({ type: 'partial',
     committed: committed ? 'my interruption' : '', tentative: committed ? '' : 'my interruption' }));
   // Transcript staleness and sustained sound must not be treated as a pause.
@@ -196,11 +190,11 @@ it.each([false, true])('auto-sends public producer speech during TTS after a ful
   f.frame(0);
   await vi.waitFor(() => expect(f.sent).toEqual(['my interruption']));
   expect(f.controls.filter((type) => type === 'stop')).toHaveLength(1);
-  expect(f.session.player.getSnapshot().status).toBe('idle');
+  expect(f.session.player.getSnapshot().status).toBe('playing');
   await vi.advanceTimersByTimeAsync(5000);
   f.frame(0);
   expect(f.sent).toHaveLength(1);
-  expect(stop).toHaveBeenCalledTimes(1);
+  expect(stop).not.toHaveBeenCalled();
 });
 
 it('does not auto-send Alice playback without a user transcript', async () => {
@@ -253,7 +247,7 @@ it.each(['Alice is wrong', 'Alice is speaking but stop now', 'please change the 
   expect(f.element.value).toBe('');
   f.partial(text, false);
   await vi.waitFor(() => expect(f.element.value).toBe(text));
-  expect(f.session.player.getSnapshot().status).toBe('idle');
+  expect(f.session.player.getSnapshot().status).toBe('playing');
   f.frame(0.2);
   await vi.advanceTimersByTimeAsync(1500);
   f.frame(0);
@@ -276,7 +270,7 @@ it.each([false, true])('filters phone fragments but not incidental overlap or no
   for (const text of ['the deployment failed yesterday', 'review deployment lunch', 'review the deployment plan but cancel it']) {
     f.partial(text, committed);
     await vi.waitFor(() => expect(f.element.value).toBe(text));
-    expect(f.session.player.getSnapshot().status).toBe('idle');
+    expect(f.session.player.getSnapshot().status).toBe('playing');
   }
   f.frame(0.2);
   await vi.advanceTimersByTimeAsync(1500);
@@ -314,21 +308,15 @@ it('finishes a finite reply without sending, filters late/previous/cross-section
   expect(f.controls.filter((type) => type === 'start')).toHaveLength(2);
 });
 
-it.each(['mute', 'end', 'dispose'] as const)('fences stale apply/send when stop synchronously triggers %s', async (action) => {
+it('keeps the reply playing while genuine speech is dictated (no stop-on-speech)', async () => {
   const f = fixture();
   await f.binding.call!.start();
   f.reply();
   await vi.waitFor(() => expect(f.session.player.getSnapshot().status).toBe('playing'));
-  const unsubscribe = f.session.player.subscribe(() => {
-    if (f.session.player.getSnapshot().status !== 'idle') return;
-    if (action === 'mute') f.binding.call!.setMuted(true);
-    else if (action === 'end') f.binding.call!.end();
-    else f.binding.dispose();
-  });
-  f.partial('genuine speech send', true);
+  f.partial('genuine speech now', true);
+  await vi.waitFor(() => expect(f.element.value).toBe('genuine speech now'));
   await vi.advanceTimersByTimeAsync(2000);
-  unsubscribe();
-  expect(f.element.value).toBe('');
+  expect(f.session.player.getSnapshot().status).toBe('playing');
   expect(f.sent).toEqual([]);
   expect(f.controls.filter((type) => type === 'start')).toHaveLength(1);
 });
@@ -354,7 +342,7 @@ it('recognition at finite reply completion sends once and restarts capture only 
   await vi.waitFor(() => expect(f.session.player.getSnapshot()).toMatchObject({ status: 'playing', messageId: 'new-reply' }));
 });
 
-it('interrupts for first recognition delivered as a final during finalization', async () => {
+it('accepts first recognition delivered as a final during finalization without stopping playback', async () => {
   const f = fixture();
   await f.binding.call!.start();
   f.reply();
@@ -363,7 +351,7 @@ it('interrupts for first recognition delivered as a final during finalization', 
   await f.binding.dictation.finish();
   expect(f.wire).toContainEqual(expect.objectContaining({ type: 'final', text: 'first recognized final' }));
   expect(f.element.value).toBe('first recognized final');
-  expect(f.session.player.getSnapshot().status).toBe('idle');
+  expect(f.session.player.getSnapshot().status).toBe('playing');
   expect(f.sent).toEqual([]); // Explicit finish is not automatic send.
 });
 

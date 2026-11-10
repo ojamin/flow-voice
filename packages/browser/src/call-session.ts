@@ -195,7 +195,7 @@ export function createCallSession(options: CallSessionOptions): CallSession {
         ? `${previous.text} ${latest.text}` : undefined;
       if ([latest?.text, previous?.text, reference].some((spoken) => spoken && ` ${spoken} `.includes(` ${text} `)))
         return { committed: '', tentative: '' };
-      if (['playing', 'loading'].includes(player.getSnapshot().status)) player.stop();
+      // Genuine speech never stops playback: the user can listen while talking (BUG-2774 overrule; BUG-2815 adds the setting).
       return hypothesis;
     },
     getSnapshot: () => snapshot,

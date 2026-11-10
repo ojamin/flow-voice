@@ -56,9 +56,10 @@ rejects on finalization failure so normal Send cannot read an incomplete draft.
 Default session duration is unlimited; connection/finalization limits are 10s/10s.
 
 Call bindings filter each complete recognized hypothesis before composer updates or
-keyword admission. Accepted nonempty speech stops a playing/loading reply with
-`player.stop()` (queued output is discarded, never resumed); existing dictation
-pause/finalization admission sends the preserved utterance. RMS alone does not interrupt.
+keyword admission. Accepted nonempty speech does NOT stop or pause a playing/loading
+reply: the user can keep listening while talking (BUG-2774; a pause/stop setting
+follows in BUG-2815); existing dictation pause/finalization admission sends the
+preserved utterance. RMS alone does not interrupt.
 Independent call inputs must wire `filterRecognition: text => call.filterRecognition(input, text)`.
 Ordinary dictation has no filter by default.
 

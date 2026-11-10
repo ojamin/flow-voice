@@ -58,9 +58,9 @@ it('retains adjacent played references through notifications/restarts, but never
   f.play('We can review the deployment plan before lunch');
   f.play('and then discuss the release schedule tomorrow', 1, 'reply', 'loading');
   expect(filter('deployment plan before lunch').tentative).toBe('');
-  // Loading text is not an echo reference; it is eligible speech and cancels loading.
+  // Loading text is not an echo reference; it is eligible speech and playback continues.
   expect(filter('and then discuss').tentative).toBe('and then discuss');
-  expect(f.player.stop).toHaveBeenCalledTimes(1);
+  expect(f.player.stop).not.toHaveBeenCalled();
   f.play('and then discuss the release schedule tomorrow', 1);
   await f.player.resume(); // Duplicate playing notification must not rotate the bounded pair.
   f.emit('idle');
@@ -84,8 +84,9 @@ it('seeds already-playing text at call start, clears on rebind/end, and ignores 
   expect(f.session.filterRecognition(f.dictation, { committed: 'stale interruption', tentative: '' }).committed).toBe('stale interruption');
   expect(f.player.stop).not.toHaveBeenCalled();
   expect(f.session.filterRecognition(replacement, text)).toBe(text);
-  expect(f.player.stop).toHaveBeenCalledTimes(1);
+  expect(f.player.stop).not.toHaveBeenCalled();
   f.session.end();
+  f.play('already speaking', 0, 'reply', 'idle'); // Playback stopped with the call, so nothing re-seeds.
   await f.session.start();
   expect(f.session.filterRecognition(replacement, text)).toBe(text);
   f.session.dispose();
