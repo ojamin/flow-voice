@@ -235,6 +235,29 @@ describe('speech player', () => {
     expect(p.getSnapshot().status).toBe('idle');
     expect(p.getSnapshot().queuedMessages).toBe(0);
   });
+  it.each([false, true])('resumes loading only after playback admission (synthesis resolves while paused: %s)', async (resolveWhilePaused) => {
+    let resolve!: (audio: SynthesisAudio) => void;
+    const p = player(() => new Promise((done) => { resolve = done; }));
+    p.enqueue(message('pending', 'not yet heard'));
+    await tick();
+    expect(p.getSnapshot().status).toBe('loading');
+    p.pause();
+    expect(p.getSnapshot().status).toBe('paused');
+    if (resolveWhilePaused) {
+      resolve(pcm());
+      await tick();
+      expect(p.getSnapshot().status).toBe('paused');
+    }
+    await p.resume();
+    expect(p.getSnapshot().status).toBe(resolveWhilePaused ? 'playing' : 'loading');
+    if (!resolveWhilePaused) resolve(pcm());
+    await tick();
+    expect(p.getSnapshot().status).toBe('playing');
+    expect(sources).toHaveLength(1);
+    sources[0]!.end();
+    await tick();
+    expect(p.getSnapshot().status).toBe('idle');
+  });
   it('fences late fetches without blocking a subsequent queue', async () => {
     let resolve!: (value: SynthesisAudio) => void;
     const fetcher = vi

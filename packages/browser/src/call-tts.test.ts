@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { DEFAULT_DICTATION_PREFERENCE, type SttServerMessage } from '@flow-voice/core';
+import { DEFAULT_DICTATION_PREFERENCE, type SttServerMessage, type SynthesisAudio } from '@flow-voice/core';
 import { createLiveTranscriptionSession, type SttAdapter, type SttEvent } from '@flow-voice/server';
 import { createAutoReader, createSpeechSession, createTextareaComposerAdapter,
   type AudioCaptureOptions, type DictationTransport } from './index.js';
@@ -14,12 +14,13 @@ afterEach(() => {
 
 /** Real public runner produces revisioned committed/tentative wire messages. Only the
  * recognition source, capture device and audio sink are synthetic; no recognition/AEC claim. */
-function fixture(finalization?: Promise<void>, finite = false) {
+function fixture(finalization?: Promise<void>, finite = false, synthesis?: Promise<SynthesisAudio>) {
   vi.useFakeTimers();
   const ends: (() => void)[] = [];
   vi.stubGlobal('AudioContext', class {
     state = 'running';
     resume = vi.fn(async () => {});
+    suspend = vi.fn(async () => {});
     close = vi.fn(async () => {});
     createMediaStreamDestination() { return { stream: {} }; }
     createBuffer() { return { getChannelData: () => new Float32Array(2) }; }
@@ -75,7 +76,7 @@ function fixture(finalization?: Promise<void>, finite = false) {
   const wire: SttServerMessage[] = [];
   const controls: string[] = [];
   const session = createSpeechSession({
-    synthesize: async () => ({ stream: new ReadableStream({ start(c) {
+    synthesize: async () => synthesis ?? ({ stream: new ReadableStream({ start(c) {
       if (finite) { c.enqueue(new Uint8Array([0, 0, 0, 0])); c.close(); }
     } }), mimeType: 'audio/pcm',
       format: { kind: 'pcm', encoding: 'pcm_s16le', sampleRate: 24000, channels: 1 } }),
@@ -128,6 +129,43 @@ function fixture(finalization?: Promise<void>, finite = false) {
     },
   };
 }
+
+it.each([false, true])('accepts unheard section speech after loading pause/resume and fences late synthesis (committed: %s)', async (committed) => {
+  let resolve!: (audio: SynthesisAudio) => void;
+  const synthesis = new Promise<SynthesisAudio>((done) => { resolve = done; });
+  const f = fixture(undefined, false, synthesis);
+  await f.binding.call!.start();
+  f.reply('We can review the deployment plan before lunch');
+  await vi.waitFor(() => expect(f.session.player.getSnapshot().status).toBe('loading'));
+  f.session.player.pause();
+  expect(f.session.player.getSnapshot().status).toBe('paused');
+  await f.session.player.resume();
+  const stop = vi.spyOn(f.session.player, 'stop');
+  const text = 'review the deployment plan';
+  f.partial(text, committed);
+  await vi.waitFor(() => expect(f.element.value).toBe(text));
+  expect(stop).toHaveBeenCalledTimes(1);
+  expect(f.session.player.getSnapshot().status).toBe('idle');
+  const cancel = vi.fn();
+  resolve({ stream: new ReadableStream({ start(c) {
+    c.enqueue(new Uint8Array([0, 0, 0, 0])); c.close();
+  }, cancel }), mimeType: 'audio/pcm',
+    format: { kind: 'pcm', encoding: 'pcm_s16le', sampleRate: 24000, channels: 1 } });
+  await vi.waitFor(() => expect(cancel).toHaveBeenCalledTimes(1));
+  expect(f.ends).toHaveLength(0);
+  f.partial(text, committed);
+  await vi.advanceTimersByTimeAsync(10);
+  expect(f.element.value).toBe(text);
+  f.frame(0.2);
+  await vi.advanceTimersByTimeAsync(1500);
+  f.frame(0);
+  await vi.waitFor(() => expect(f.sent).toEqual([text]));
+  await vi.advanceTimersByTimeAsync(2000);
+  f.frame(0);
+  expect(f.sent).toEqual([text]);
+  expect(stop).toHaveBeenCalledTimes(1);
+  expect(f.ends).toHaveLength(0);
+});
 
 it.each([false, true])('auto-sends public producer speech during TTS after a full acoustic pause (committed: %s)', async (committed) => {
   const f = fixture();

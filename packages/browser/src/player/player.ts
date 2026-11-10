@@ -22,6 +22,7 @@ export function createSpeechPlayer(options: SpeechPlayerOptions): SpeechPlayer {
   let epoch = 0;
   let running = false;
   let paused = false;
+  let playbackAdmitted = false;
   let active: AbortController | undefined;
   type Prefetch = { key: string; controller: AbortController; promise: Promise<SynthesisAudio> };
   let prefetched: Prefetch | undefined;
@@ -112,6 +113,7 @@ export function createSpeechPlayer(options: SpeechPlayerOptions): SpeechPlayer {
           check(signal);
           const next = nextSection();
           if (next && !prefetched) prefetched = fetchSection(next);
+          playbackAdmitted = true;
           emit({ status: paused ? 'paused' : 'playing' });
           await output.play(audio, signal);
           check(signal);
@@ -137,6 +139,7 @@ export function createSpeechPlayer(options: SpeechPlayerOptions): SpeechPlayer {
           });
           return;
         } finally {
+          playbackAdmitted = false;
           signal.removeEventListener('abort', abort);
         }
       }
@@ -186,6 +189,7 @@ export function createSpeechPlayer(options: SpeechPlayerOptions): SpeechPlayer {
   }
   function interrupt() {
     epoch++;
+    playbackAdmitted = false;
     active?.abort();
     cancelFetch();
   }
@@ -225,7 +229,7 @@ export function createSpeechPlayer(options: SpeechPlayerOptions): SpeechPlayer {
       try {
         await output.resume();
         paused = false;
-        emit({ status: queue.length ? 'playing' : 'idle' });
+        emit({ status: queue.length ? (playbackAdmitted ? 'playing' : 'loading') : 'idle' });
         void pump();
       } catch {
         emit({ status: 'blocked' });
